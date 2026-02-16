@@ -1,0 +1,581 @@
+{
+  "name": "Bastian Project",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n        a.id AS idabono,\n        CONCAT('00', ad.idfranquicia, ad.iddocumentacion) AS ticket,\n        a.idcliente,\n        a.metodopago,\n        a.fecha,\n        a.fechapago,\n        ad.fechadocumentacion,\n        a.nombrecliente,\n        d.rfcorigen AS RUT,\n        d.nombreusuario AS capturo,\n        UPPER(d.nombreclientedestino) AS nombreclientedestino,\n        UPPER(d.coloniadestino) AS comuna,\n        (\n            SELECT SUM(cantidad) \n            FROM pkt1franquicia1.documentaciondetalle \n            WHERE iddoc = ad.iddocumentacion\n        ) AS bultos,\n        a.foliotemp,\n        a.seriefactura,\n        a.foliofactura,\n        a.estatus,\n        a.correo,\n        ad.monto AS importeDoc,\n        a.importe\n    FROM maestro.abonos a\n    JOIN maestro.abonosdetalle ad ON a.id = ad.idabono\n    JOIN maestro.documentacion_all d ON (d.id = ad.iddocumentacion and d.idfranquicia=ad.idfranquicia)\n    WHERE a.id IN (\n        SELECT id FROM maestro.abonos WHERE estatus = 'P'\n    )\n    AND a.fecha BETWEEN '2021-04-16' AND '{{ $json.fecha_fin_sql }}'\n    ORDER BY idabono DESC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        688,
+        112
+      ],
+      "id": "fdf0a477-106a-44fe-9716-d1ee5bda9ad4",
+      "name": "Execute a SQL query",
+      "executeOnce": true,
+      "credentials": {
+        "mySql": {
+          "id": "FhwxJyYBJmWfAvfd",
+          "name": "MySQL account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        288,
+        112
+      ],
+      "id": "6aaf34a6-4055-4f47-971a-6ad3e50e1416",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "format": "resolved",
+        "options": {
+          "forceReconnect": 20
+        }
+      },
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2.1,
+      "position": [
+        -128,
+        112
+      ],
+      "id": "160d88ce-6545-4f71-977c-3f0453eee2d8",
+      "name": "Email Trigger (IMAP)",
+      "credentials": {
+        "imap": {
+          "id": "kSKPSR0Avezx70o2",
+          "name": "IMAP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Obtiene los datos de entrada del nodo anterior\nconst items = $input.all();\nconst filteredItems = [];\n\n// Define la extensión de archivo que se quiere permitir\nconst ALLOWED_EXTENSION = 'xlsx';\n\nfor (const item of items) {\n    // Itera sobre todos los archivos adjuntos en el ítem actual\n    const binaryData = item.binary;\n\n    if (binaryData) {\n        // Objeto para almacenar solo el archivo XLSX filtrado y renombrado\n        const filteredBinary = {};\n\n        // Recorre cada archivo en el objeto binario\n        for (const fileName in binaryData) {\n            if (binaryData.hasOwnProperty(fileName)) {\n                \n                const file = binaryData[fileName];\n                \n                // 1. Obtiene el nombre real del archivo\n                const actualFileName = file.fileName || fileName;\n                \n                // 2. Extrae la extensión del archivo (última parte después del punto)\n                const extension = actualFileName.split('.').pop().toLowerCase();\n\n                // 3. Compara la extensión\n                if (extension === ALLOWED_EXTENSION) {\n                    // Si es XLSX, lo agrega al objeto binario filtrado\n                    // *** CORRECCIÓN: Renombra la clave del archivo binario a \"data\" ***\n                    \n                    // Clonamos el objeto de archivo para mantener todas sus propiedades (mimeType, data, etc.)\n                    // y nos aseguramos de que el nombre del archivo (propiedad 'fileName' dentro del objeto) \n                    // se mantenga con el nombre original, pero la CLAVE BINARIA se llama 'data'.\n                    \n                    const renamedFile = { ...file };\n                    // El nuevo nombre clave en el objeto 'binary' será \"data\"\n                    filteredBinary['data'] = renamedFile;\n                    \n                    // Dado que n8n solo necesita un archivo para continuar el proceso,\n                    // y ya encontramos el XLSX, podemos salir del bucle interno\n                    break;\n                }\n            }\n        }\n\n        // Si se encontró y renombró el archivo XLSX, se crea un nuevo ítem de salida\n        if (Object.keys(filteredBinary).length > 0) {\n            // Se clona el ítem de datos para mantener los campos JSON\n            const newItem = JSON.parse(JSON.stringify(item.json));\n            \n            // Se agrega el objeto binario filtrado (que ahora contiene 'data') al nuevo ítem\n            filteredItems.push({\n                json: newItem,\n                binary: filteredBinary\n            });\n        }\n    }\n}\n\n// Retorna los ítems que contienen solo el archivo XLSX renombrado como \"data\"\nreturn filteredItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        80,
+        112
+      ],
+      "id": "6511ad7e-a8ca-4f91-8c9f-e3c6ac6680cb",
+      "name": "filtrar excel"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst outputItems = [];\n\nlet fechaDesdeSQL = null;\nlet fechaHastaSQL = null;\n\n// --- 1. CONFIGURACIÓN DE BÚSQUEDA ---\n\n// Función auxiliar para convertir el formato DD/MM/YYYY a YYYY-MM-DD\nfunction formatToSQL(dateString) {\n    if (!dateString) return null;\n    const parts = dateString.split('/');\n    if (parts.length === 3) {\n        return `${parts[2]}-${parts[1]}-${parts[0]}`;\n    }\n    return null; \n}\n\n// Expresión Regular para buscar CUALQUIER patrón DD/MM/AAAA.\n// Se añade 'g' (global) para que encuentre TODAS las fechas en una misma celda.\nconst regexFecha = /(\\d{2}\\/\\d{2}\\/\\d{4})/g;\n\n// Palabras clave para identificar el TIPO de fecha (en minúsculas)\n// Puedes añadir más si es necesario (ej: 'comienzo', 'término')\nconst KEYWORDS_DESDE = ['desde', 'inicio', 'del'];\nconst KEYWORDS_HASTA = ['hasta', 'fin', 'al'];\n\n\n// --- 2. BUCLE DE BÚSQUEDA ROBUSTO ---\n// Itera las filas SÓLO hasta encontrar ambas fechas.\nfor (const item of items) {\n    const json = item.json;\n\n    // Iterar sobre TODAS las celdas (valores de columna) de esta fila\n    // Object.values(json) nos da un array con el contenido de todas las columnas de esa fila\n    for (const cellValue of Object.values(json)) {\n        \n        // Si la celda está vacía o ya encontramos todo, saltar\n        if (!cellValue || (fechaDesdeSQL && fechaHastaSQL)) continue;\n\n        let valor = String(cellValue).trim();\n        let valorLower = valor.toLowerCase(); // Para buscar keywords\n        \n        // Usar matchAll() para encontrar TODAS las fechas en la celda\n        const matches = [...valor.matchAll(regexFecha)];\n\n        // Si no hay fechas en esta celda, ir a la siguiente celda\n        if (matches.length === 0) continue;\n\n        // --- Lógica de Asignación por Keywords ---\n        const esDesde = KEYWORDS_DESDE.some(keyword => valorLower.includes(keyword));\n        const esHasta = KEYWORDS_HASTA.some(keyword => valorLower.includes(keyword));\n\n        // Caso 1: Celda contiene \"Desde\" (y no \"Hasta\") y al menos una fecha\n        // Ej: \"Período desde: 30/09/2025\"\n        if (esDesde && !esHasta && !fechaDesdeSQL) {\n            fechaDesdeSQL = formatToSQL(matches[0][1]); // Usar la primera fecha encontrada\n        }\n\n        // Caso 2: Celda contiene \"Hasta\" (y no \"Desde\") y al menos una fecha\n        // Ej: \"Fecha hasta 07/10/2025\"\n        if (esHasta && !esDesde && !fechaHastaSQL) {\n            fechaHastaSQL = formatToSQL(matches[0][1]); // Usar la primera fecha encontrada\n        }\n\n        // Caso 3: Celda contiene AMBAS keywords (y al menos 2 fechas)\n        // Ej: \"Período del 30/09/2025 al 07/10/2025\"\n        if (esDesde && esHasta && matches.length >= 2) {\n            if (!fechaDesdeSQL) {\n                fechaDesdeSQL = formatToSQL(matches[0][1]); // Asumir la primera es 'desde'\n            }\n            if (!fechaHastaSQL) {\n                fechaHastaSQL = formatToSQL(matches[1][1]); // Asumir la segunda es 'hasta'\n            }\n        }\n    } // Fin del bucle de celdas (columnas)\n    \n    // Detenemos la búsqueda de FILAS si ambas fechas ya fueron encontradas\n    if (fechaDesdeSQL && fechaHastaSQL) {\n        break; \n    }\n} // Fin del bucle de filas\n\n// --- 3. BUCLE PARA AÑADIR LAS FECHAS (Idéntico al original) ---\n// Ahora que tenemos las fechas, las añadimos a CADA fila.\nfor (const item of items) {\n    const newItem = {\n        ...item.json, \n        fecha_inicio_sql: fechaDesdeSQL, \n        fecha_fin_sql: fechaHastaSQL,\n    };\n\n    outputItems.push({ json: newItem, binary: item.binary });\n}\n\nreturn outputItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        112
+      ],
+      "id": "69402a49-5ae7-4d7d-b665-67f9080e48d9",
+      "name": "obtener fechas"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst outputItems = [];\n\n// --- 1. CONFIGURACIÓN ---\n// Palabras clave para encontrar las columnas y el rango\nconst KEY_HEADER_MONTO = 'monto';\nconst KEY_HEADER_DESC = 'descripción movimiento';\nconst KEY_HEADER_TIPO = 'cargo/abono';\nconst KEY_FIN = 'saldo final del período'; // Marca el fin de los datos\n\n// Regex para extraer el RUT (dígitos al inicio de la celda, con DV)\nconst regexRut = /^(\\d{7,9}[0-9Kk])/;\n// Regex para detectar texto (para la regla del RUT=0)\nconst regexTexto = /[a-zA-Z]/;\n\n// Variables para guardar los nombres de columna generados por n8n\nlet COL_MONTO = null;\nlet COL_DESC = null;\nlet COL_TIPO = null;\n\nlet dataStartIndex = -1; // Fila donde empiezan los datos\n\n// --- 2. BUCLE 1: ENCONTRAR CABECERAS Y RANGO ---\nfor (let i = 0; i < items.length; i++) {\n    const json = items[i].json;\n    let isHeaderRow = false;\n\n    // Iterar sobre las celdas de esta fila para encontrar las cabeceras\n    for (const [key, value] of Object.entries(json)) {\n        if (value === null || value === undefined) continue;\n        const valorLower = String(value).trim().toLowerCase();\n\n        if (valorLower === KEY_HEADER_MONTO) {\n            COL_MONTO = key;\n            isHeaderRow = true;\n        } else if (valorLower === KEY_HEADER_DESC) {\n            COL_DESC = key;\n     } else if (valorLower === KEY_HEADER_TIPO) {\n            COL_TIPO = key;\n        }\n    }\n\n    // Si encontramos la fila de cabecera, guardamos el índice de inicio\n    if (isHeaderRow && COL_MONTO && COL_DESC && COL_TIPO) {\n        dataStartIndex = i + 1; // Los datos empiezan en la *siguiente* fila\n        break; // Dejamos de buscar cabeceras\n    }\n}\n\n// --- 3. BUCLE 2: PROCESAR DATOS USANDO LOS NOMBRES DE COLUMNA ---\n\nif (dataStartIndex !== -1) {\n    for (let i = dataStartIndex; i < items.length; i++) {\n        const json = items[i].json;\n        \n        let rutExtraido = null;\n        let montoExtraido = null;\n\n        // --- A. Extracción de RUT y Monto (usando las columnas correctas) ---\n        const valorDesc = json[COL_DESC] ? String(json[COL_DESC]).trim() : '';\n        const valorMonto = json[COL_MONTO] ? String(json[COL_MONTO]).trim() : '';\n        const valorTipo = json[COL_TIPO] ? String(json[COL_TIPO]).trim() : '';\n\n        // Verificar si es la fila final\n        if (valorDesc.toLowerCase().startsWith(KEY_FIN)) {\n            break; // Terminamos de procesar\n        }\n        \n        // 1. Lógica de RUT (solo sobre la columna de descripción)\n        const matchRut = valorDesc.match(regexRut);\n        if (matchRut) {\n            // Caso 1: Se encontró un RUT (ej: \"077817846K...\")\n            rutExtraido = matchRut[1]; // matchRut[1] es el RUT completo\n        } else if (regexTexto.test(valorDesc)) {\n            // Caso 2: No hay RUT pero hay texto (ej: \"Abono Ventas...\")\n            rutExtraido = \"0\";\n        }\n        // Si no, rutExtraido queda en 'null'\n\n        // 2. Lógica de Monto (usando monto y tipo)\n        if (valorMonto) {\n            montoExtraido = valorMonto.replace(/[.,]/g, '');\nsection: 1\n            \n            if (valorTipo === 'C') {\n                // Si es Cargo, añadir signo negativo\n                montoExtraido = '-' + montoExtraido;\n            }\n        }\n\n        // --- C. Salida ---\n   // Solo añade la fila si tiene un RUT o un Monto\n        if (montoExtraido !== null || rutExtraido !== null) {\n            \n            // ***** CAMBIO AQUÍ: Omitir montos negativos *****\n            // Comprobamos si el monto (string) empieza con \"-\"\n            if (montoExtraido && montoExtraido.startsWith('-')) {\n    \t\t    continue; // Salta esta fila y no la añade\n            }\n            // ***** FIN DEL CAMBIO *****\n            \n            // Quitar el 0 inicial si existe y no es el RUT \"0\"\n            if (rutExtraido && rutExtraido !== \"0\" && rutExtraido.startsWith('0')) {\n                rutExtraido = rutExtraido.substring(1);\n        }\n            \n            const newItemJson = {\n             RUT: rutExtraido, \n                monto_transferencia: montoExtraido,\n            };\n            outputItems.push({ json: newItemJson });\n  }\n    }\n}\n\nreturn outputItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        -64
+      ],
+      "id": "64af6789-8c78-452d-a829-131ba87e40d3",
+      "name": "extraer root y monto"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nlet outputItems = []; // Declarado con let\n\n// Si no hay entrada, no hay salida\nif (items.length === 0) {\n    return [];\n}\n\n// --- 1. CONFIGURACIÓN ---\n// Nombres de columna que BUSCAMOS (en minúsculas)\nconst KEY_RUT = 'rut';\nconst KEY_NOMBRE = 'nombrecliente';\nconst KEY_CORREO = 'correo';\nconst KEY_FECHA = 'fecha';\nconst KEY_IMPORTE = 'importe';\nconst KEY_ID_CLIENTE = 'idcliente';\n\n// ***** TOPE MÁXIMO DE FACTURAS *****\n// 170 columnas totales - 4 (RUT, Nombre, Correo, ID) = 166 columnas.\n// 166 / 2 (fecha e importe) = 83 facturas.\nconst MAX_FACTURAS_PERMITIDAS = 15;\n// **********************************\n\n// --- 2. DETECCIÓN DE COLUMNAS (Anti-errores de Mayúsculas) ---\nlet COL_RUT, COL_NOMBRE, COL_CORREO, COL_FECHA, COL_IMPORTE, COL_ID_CLIENTE;\nconst firstItemJson = items[0].json;\nconst allKeys = Object.keys(firstItemJson);\n\nfunction findKey(keyName) {\n    const foundKey = allKeys.find(k => k.toLowerCase() === keyName.toLowerCase());\n    if (!foundKey && (keyName === KEY_RUT || keyName === KEY_ID_CLIENTE)) {\n        throw new Error(`¡Error Crítico! No se encontró la columna \"${keyName}\". Verifique su consulta SQL.`);\n    }\n    return foundKey;\n}\n\ntry {\n    COL_RUT = findKey(KEY_RUT);\n    COL_NOMBRE = findKey(KEY_NOMBRE);\n    COL_CORREO = findKey(KEY_CORREO);\n    COL_FECHA = findKey(KEY_FECHA);\n    COL_IMPORTE = findKey(KEY_IMPORTE);\n    COL_ID_CLIENTE = findKey(KEY_ID_CLIENTE); \n} catch (error) {\n    return [{ json: { error: error.message } }];\n}\n\n// Regex para limpiar el RUT\nconst regexLimpiezaRut = /[.-]/g; \n\n// Almacén para agrupar\nconst groupedItems = new Map();\nlet maxFacturas = 0; \n\n// --- BUCLE 1: LIMPIAR, AGRUPAR Y APLANAR ---\nfor (const item of items) {\n    const json = item.json;\n    let rutLimpio = null;\n    let groupingKey = null; \n\n    // 1. Limpiar el RUT\n    if (json[COL_RUT]) { \n        const rutSucio = String(json[COL_RUT]);\n        rutLimpio = rutSucio.replace(regexLimpiezaRut, '');\n    }\n    \n    delete json[COL_RUT]; \n    json.RUT = rutLimpio; \n\n    // 2. Obtener la LLAVE DE AGRUPACIÓN (ID Cliente)\n    if (json[COL_ID_CLIENTE] !== null && json[COL_ID_CLIENTE] !== undefined) { \n        groupingKey = String(json[COL_ID_CLIENTE]).trim(); \n    } else {\n        groupingKey = null;\n    }\n\n    // **FILTRO IMPORTANTE (Soluciona la causa raíz)**\n    // Ignorar nulos, vacíos (\"\") y \"0\"\n    if (!groupingKey || groupingKey === '0') { \n        continue; // ESTO EVITA LAS COLUMNAS FANTASMA\n    }\n\n    // 3. Agrupar\n    if (groupedItems.has(groupingKey)) {\n        const existing = groupedItems.get(groupingKey);\n        existing.count++; \n        \n        // **FILTRO DE TOPE (Soluciona el síntoma)**\n        // Si este cliente ya superó el límite, no añadir más columnas\n        if (existing.count > MAX_FACTURAS_PERMITIDAS) {\n            continue; \n        }\n        \n        existing.json['fecha_' + existing.count] = json[COL_FECHA];\n        existing.json['importe_' + existing.count] = json[COL_IMPORTE];\n        \n        // El máximo de facturas de la tabla NUNCA superará el tope\n        if (existing.count > maxFacturas) {\n            maxFacturas = existing.count;\n        }\n    \n    } else {\n        // CLIENTE NUEVO\n        const newRow = {};\n        newRow.nombrecliente = json[COL_NOMBRE];\n        newRow.RUT = rutLimpio; \n        newRow.correo = json[COL_CORREO];\n        newRow[KEY_ID_CLIENTE] = groupingKey; \n        \n        newRow.fecha_1 = json[COL_FECHA];\n        newRow.importe_1 = json[COL_IMPORTE];\n        \n        groupedItems.set(groupingKey, { json: newRow, count: 1 });\n        \n        if (maxFacturas === 0) {\n            maxFacturas = 1;\n        }\n    }\n}\n\n// --- BUCLE 2: RELLENAR (PADDEAR) CON CEROS ---\n// (maxFacturas ahora está limitado a 83)\nfor (const entry of groupedItems.values()) {\n    const json = entry.json;\n    const count = entry.count; \n\n    // Rellenar solo hasta el máximo (ej: 83)\n    for (let i = count + 1; i <= maxFacturas; i++) {\n        const fechaKey = 'fecha_' + i;\n        const importeKey = 'importe_' + i;\n\n        json[fechaKey] = 0;\n        json[importeKey] = 0;\n    }\n}\n\n// --- BUCLE 3: FORMATEAR LA SALIDA ---\n// (Se quita \"const\" para re-asignar)\noutputItems = Array.from(groupedItems.values()).map(entry => ({ json: entry.json }));\n\nreturn outputItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        112
+      ],
+      "id": "632f04e5-c922-43c3-91f6-2f94d12a6f60",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst outputItems = [];\n\n// --- LÍMITE DE SEGURIDAD ---\nconst MAX_FACTURAS_PARA_BUSCAR_COMBO = 20;\n\n// --- FUNCIÓN RECURSIVA (SIN CAMBIOS) ---\nfunction findCombinationsRecursive(facturas, pagoRestante, startIndex) {\n    if (pagoRestante === 0) {\n        return [];\n    }\n    if (pagoRestante < 0 || startIndex >= facturas.length) {\n        return null;\n    }\n    for (let i = startIndex; i < facturas.length; i++) {\n        const facturaActual = facturas[i];\n        const resultado = findCombinationsRecursive(\n            facturas, \n            pagoRestante - facturaActual.importeCentavos, \n            i + 1 \n        );\n        if (resultado !== null) {\n            return [facturaActual, ...resultado];\n        }\n    }\n    return null;\n}\n\n// --- FUNCIÓN ENVOLTORIO (SIN CAMBIOS) ---\nfunction findMatchingFacturas(facturas, pagoTotal) {\n    const pagoCentavos = Math.round(parseFloat(pagoTotal) * 100);\n    if (pagoCentavos === 0) return [];\n    const margenCentavos = 100; \n    for (let i = 0; i < facturas.length; i++) {\n        const diferencia = Math.abs(facturas[i].importeCentavos - pagoCentavos);\n        if (diferencia <= margenCentavos) {\n            return [facturas[i]]; \n        }\n    }\n    if (facturas.length > MAX_FACTURAS_PARA_BUSCAR_COMBO) {\n        return null; \n    }\n    const resultado = findCombinationsRecursive(facturas, pagoCentavos, 0);\n    return resultado || []; \n}\n// --- FIN DE FUNCIONES AUXILIARES ---\n\n// --- BUCLE PRINCIPAL (SOBRE FILAS DEL MERGE) ---\nfor (const item of items) {\n    const json = item.json;\n    const pagoTransferencia = Math.abs(parseFloat(json.monto_transferencia) || 0);\n    const facturas = [];\n    let deuda_total_original = 0;\n    let facturaMasBarata = Infinity;\n\n    const importeKeys = Object.keys(json)\n        .filter(key => key.startsWith('importe_'))\n        .sort((a, b) => parseInt(a.split('_')[1]) - parseInt(b.split('_')[1]));\n\n    for (const importeKey of importeKeys) {\n        const importe = Math.abs(parseFloat(json[importeKey]) || 0);\n        if (importe === 0) continue; \n        const num = importeKey.split('_')[1];\n        const fechaKey = 'fecha_' + num;\n        const fecha = json[fechaKey];\n        facturas.push({ \n            fecha: fecha, \n            importeCentavos: Math.round(importe * 100)\n        });\n        deuda_total_original += importe;\n        if (importe < facturaMasBarata) {\n            facturaMasBarata = importe;\n        }\n    }\n\n    // 3. Añadir columnas nuevas y calcular deudas\n    json.deuda_total_original = Math.round(deuda_total_original * 100) / 100;\n    json.deuda_restante = Math.round((deuda_total_original - pagoTransferencia) * 100) / 100;\n    json.quincenas_pagadas = null; // Default\n\n    // 4. Lógica de Coincidencia (usando las reglas que definió)\n    if (pagoTransferencia === 0) {\n        json.quincenas_pagadas = 'N/A (Sin Pago)';\n    \n    // ***** CAMBIO 1 AQUÍ *****\n    } else if (pagoTransferencia < (facturaMasBarata * 0.99)) { \n    \t// Antes: 'Abono Parcial (Insuficiente)'\n        json.quincenas_pagadas = 'Abono Insuficiente';\n    \n    } else {\n        const facturasPagadas = findMatchingFacturas(facturas, pagoTransferencia);\n\n        if (facturasPagadas === null) {\n            // Caso 1: Se activó el LÍMITE DE SEGURIDAD\n            json.quincenas_pagadas = `Sin Coincidencia (Límite ${MAX_FACTURAS_PARA_BUSCAR_COMBO} facturas)`;\n        } else if (facturasPagadas.length > 0) {\n            // Caso 2: ¡Encontrado! (1 o N facturas)\n            json.quincenas_pagadas = facturasPagadas.map(f => f.fecha).join(', ');\n        } else {\n            // ***** CAMBIO 2 AQUÍ *****\n            // Antes: 'Sin Coincidencia Exacta'\n            json.quincenas_pagadas = 'Abono Parcial';\n        }\n    }\n\n    outputItems.push(item);\n}\n\nreturn outputItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1456,
+        -48
+      ],
+      "id": "09d35d47-af7e-4cb8-9301-4f3fc3a189b6",
+      "name": "Code1"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "fieldsToMatchString": "RUT",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1248,
+        -48
+      ],
+      "id": "95274427-3ff2-411d-be86-834dfc2f434a",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {
+          "fileName": "Cotejo_Chile"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1664,
+        -48
+      ],
+      "id": "41d91ecf-c73c-46b0-90ce-7fc951353c21",
+      "name": "Convert to File"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {
+          "fileName": "Rut_personales"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1664,
+        -192
+      ],
+      "id": "6cea9c1d-5be3-484c-b28e-e34b37a5ee95",
+      "name": "Convert to File1"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {
+          "includeBinaries": true
+        }
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2272,
+        -192
+      ],
+      "id": "f90a6442-5808-4a95-97be-07ab1ce45324",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst outputItems = [];\n\n// --- 1. CONFIGURACIÓN ---\n// Regex para RUT Personal:\n// ^[12]   -> Debe empezar con \"1\" o \"2\"\n// \\d{7}    -> Seguido de 7 dígitos\n// [0-9Kk] -> Terminar en un número (0-9) o \"K\"/\"k\"\n// $        -> Debe ser el final de la cadena (total 9 dígitos)\nconst regexRutPersonal = /^[12]\\d{7}[0-9Kk]$/i; // 'i' para K/k\n\n// --- 2. BUCLE FILTRADOR ---\nfor (const item of items) {\n    const json = item.json;\n    \n    // Obtener el RUT que ya fue limpiado por el nodo anterior\n    const rut = json.RUT;\n\n    // Si no hay RUT, o es el RUT \"0\", descartar\n    if (!rut || rut === \"0\") {\n        continue;\n    }\n\n    // --- 3. Lógica de Filtro ---\n    // Probar el RUT con la nueva Regex\n    if (regexRutPersonal.test(rut)) {\n        // Si SÍ coincide (es un RUT personal), añadirlo a la salida\n        outputItems.push(item);\n    }\n    // Si no coincide, simplemente se ignora y no pasa.\n}\n\nreturn outputItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        -192
+      ],
+      "id": "27aa9824-3292-4c29-95cb-7e3041308f48",
+      "name": "extraer rut personales"
+    },
+    {
+      "parameters": {
+        "fromEmail": "automatizaciones@pktuno.com",
+        "toEmail": "eaviles@pkt1.cl",
+        "subject": "Cotejo terminado",
+        "emailFormat": "text",
+        "text": "Buen día compañeros de chile, se le adjunta el resultado del cotejo automatizado. ",
+        "options": {
+          "attachments": "Rut_personales, Cotejo_Chile, Rut_No_Registrados"
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2480,
+        -192
+      ],
+      "id": "7480f304-ec90-407c-b6aa-5f7257535c83",
+      "name": "Send email",
+      "webhookId": "7b3679d0-db85-405f-bdbb-531edd87d2c6",
+      "credentials": {
+        "smtp": {
+          "id": "fcHCvvfEJ22hetLE",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2080,
+        -208
+      ],
+      "id": "b029743e-7139-47fe-8c8f-cbe26968cc3b",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nfor (const item of items) {\n    if (!item.binary || !item.binary.data) continue; \n\n    const binaryKeys = Object.keys(item.binary);\n    if (binaryKeys.length !== 1) continue; \n\n    const originalDynamicKey = binaryKeys[0]; \n    const originalBinary = item.binary[originalDynamicKey];\n    \n    const finalFileName = \"Rut_personales.xlsx\"; // El nombre final\n\n    // 1. ELIMINAMOS la clave dinámica de entrada.\n    delete item.binary[originalDynamicKey]; \n\n    // 2. Creamos la nueva clave ESTÁTICA ('Rut_personales')\n    item.binary.Rut_personales = originalBinary; \n\n    // 3. SOBRESCRIBIMOS la metadata del nombre de archivo\n    item.binary.Rut_personales.fileName = finalFileName;\n}\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1872,
+        -192
+      ],
+      "id": "146896c7-369d-4112-bc3f-cce64ea58da4",
+      "name": "Code2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nfor (const item of items) {\n    if (!item.binary || !item.binary.data) continue; \n\n    const binaryKeys = Object.keys(item.binary);\n    if (binaryKeys.length !== 1) continue; \n\n    const originalDynamicKey = binaryKeys[0]; \n    const originalBinary = item.binary[originalDynamicKey];\n    \n    const finalFileName = \"Cotejo_Chile.xlsx\"; // El nombre final\n\n    // 1. ELIMINAMOS la clave dinámica de entrada.\n    delete item.binary[originalDynamicKey]; \n\n    // 2. Creamos la nueva clave ESTÁTICA ('Cotejo_Chile')\n    item.binary.Cotejo_Chile = originalBinary; \n\n    // 3. SOBRESCRIBIMOS la metadata del nombre de archivo\n    item.binary.Cotejo_Chile.fileName = finalFileName;\n}\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1872,
+        -48
+      ],
+      "id": "fab856a9-df18-4eee-9f5f-8b9d2b0e49d5",
+      "name": "Code3"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "fieldsToMatchString": "RUT",
+        "joinMode": "keepNonMatches",
+        "outputDataFrom": "input1",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1248,
+        -352
+      ],
+      "id": "9e8ee313-96ca-4a90-b103-527f78bc4451",
+      "name": "Merge2"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1664,
+        -352
+      ],
+      "id": "0d5fe9e8-8498-4548-809c-cd2c322a71bb",
+      "name": "Convert to File2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nfor (const item of items) {\n    if (!item.binary || !item.binary.data) continue; \n\n    const binaryKeys = Object.keys(item.binary);\n    if (binaryKeys.length !== 1) continue; \n\n    const originalDynamicKey = binaryKeys[0]; \n    const originalBinary = item.binary[originalDynamicKey];\n    \n    const finalFileName = \"Rut_No_Registrados.xlsx\"; // El nombre final\n\n    // 1. ELIMINAMOS la clave dinámica de entrada.\n    delete item.binary[originalDynamicKey]; \n\n    // 2. Creamos la nueva clave ESTÁTICA ('Rut_personales')\n    item.binary.Rut_No_Registrados = originalBinary; \n\n    // 3. SOBRESCRIBIMOS la metadata del nombre de archivo\n    item.binary.Rut_No_Registrados.fileName = finalFileName;\n}\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1872,
+        -352
+      ],
+      "id": "3a44fcc4-f9d3-4530-b9cd-6016ccdd51a6",
+      "name": "Code4"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst outputItems = [];\n\n// --- 1. CONFIGURACIÓN ---\n// Regex para RUT Personal (Igual que antes):\n// Empieza con 1 o 2, seguido de 7 dígitos, termina en N° o K (total 9)\nconst regexRutPersonal = /^[12]\\d{7}[0-9Kk]$/i; \n\n// --- 2. BUCLE FILTRADOR INVERSO ---\nfor (const item of items) {\n    const json = item.json;\n    \n    // Obtener el RUT limpio\n    const rut = json.RUT;\n\n    // Filtro de seguridad: Si no hay RUT o es \"0\", lo ignoramos igual\n    if (!rut || rut === \"0\") {\n        continue;\n    }\n\n    // --- 3. Lógica de Filtro (INVERTIDA) ---\n    // Usamos el símbolo \"!\" que significa \"NO\"\n    if (!regexRutPersonal.test(rut)) {\n        // Si NO es un RUT personal (entonces es empresa), lo dejamos pasar\n        outputItems.push(item);\n    }\n    // Si SÍ es personal, el bucle termina y el item se pierde (se borra).\n}\n\nreturn outputItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        -368
+      ],
+      "id": "d24b6f00-9d4f-4bdb-84f1-3ffbf8b7f195",
+      "name": "Code5"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "obtener fechas",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "extraer root y monto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Trigger (IMAP)": {
+      "main": [
+        [
+          {
+            "node": "filtrar excel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "filtrar excel": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "obtener fechas": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "extraer root y monto": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "extraer rut personales",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Code5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code1": {
+      "main": [
+        [
+          {
+            "node": "Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File1": {
+      "main": [
+        [
+          {
+            "node": "Code2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File": {
+      "main": [
+        [
+          {
+            "node": "Code3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "extraer rut personales": {
+      "main": [
+        [
+          {
+            "node": "Convert to File1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code2": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Code3": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge2": {
+      "main": [
+        [
+          {
+            "node": "Convert to File2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File2": {
+      "main": [
+        [
+          {
+            "node": "Code4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code4": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code5": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "ae3944c4-9bc0-4130-b10e-9e312055fef5",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "5b3b7773a095832dea4f30e848125e5009bd06a9efd798b7d0c660e8372bb34f"
+  },
+  "id": "8ltzzKNbKNINN8Cy",
+  "tags": []
+}
