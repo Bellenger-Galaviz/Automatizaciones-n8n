@@ -1,0 +1,213 @@
+{
+  "name": "Validación de identificaciones",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "use maestro;\n\nSELECT\n    i.id,\n    i.idcliente,\n    trim(concat(c.nombre,\" \",c.apellidop,\" \",c.apellidop)) as nombrecliente,\n    i.id as idcontacto,\n    i.nombrecliente as nombreusuario,\n    i.correoContacto,\n    i.noidentificacion,\n    i.fecha_alta,\n    v.isFrontValid,\n    v.isBackValid,\n    v.isNominalListValid\nFROM identificaciones i\nINNER JOIN verificamexvalidaciones v\n    ON i.idverificamexvalidacion = v.id\ninner join clientes c\n    on c.id=i.idcliente\nWHERE i.idrol = 4\nAND (\n     v.isFrontValid = 0\n     OR v.isBackValid = 0\n     OR v.isNominalListValid = 0\n);\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -144,
+        96
+      ],
+      "id": "fea8171f-540f-403b-abf4-76821256b928",
+      "name": "Query de pktone",
+      "alwaysOutputData": false,
+      "credentials": {
+        "mySql": {
+          "id": "D7rfj8wKPgAsa0ES",
+          "name": "MySQL account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "automatizaciones@pktuno.com",
+        "toEmail": "gerentecomercial@pktuno.com",
+        "subject": "Validación de identificaciones",
+        "html": "={{ $json.tabla_html }}",
+        "options": {
+          "ccEmail": "SOPORTETI@PKTUNO.COM, SOPORTEDIGITAL@PKTUNO.COM, CFRANCO@PKTUNO.COM"
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        496,
+        0
+      ],
+      "id": "43939029-2a3d-45e0-b5a6-02f5edbd43d4",
+      "name": "Send email",
+      "webhookId": "b62dd8f7-6384-4969-8aaf-9c0f271cc40b",
+      "credentials": {
+        "smtp": {
+          "id": "fcHCvvfEJ22hetLE",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 7
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -336,
+        96
+      ],
+      "id": "79c5a00d-bdc6-40d8-ae81-7102cc8eae9b",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "const allData = $input.all();\n\n// Verificamos si hay datos reales. \n// Si el primer item no tiene 'idcliente', asumimos que la consulta vino vacía.\nconst tieneDatos = allData.length > 0 && allData[0].json.idcliente !== undefined;\n\nlet htmlContent = \"\";\n\nif (tieneDatos) {\n  htmlContent = `\n  <p style=\"font-family: Arial, sans-serif; font-size: 14px; color: #333;\">\n    Buen día compañeros,<br><br>\n    Se adjuntan los usuarios que requieren validación:\n  </p>\n  <table border=\"1\" style=\"border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 12px;\">\n    <thead>\n      <tr style=\"background-color: #f2f2f2; text-align: left;\">\n        <th style=\"padding: 8px; border: 1px solid #ddd;\">ID</th>\n        <th style=\"padding: 8px; border: 1px solid #ddd;\">ID Cliente</th>\n        <th style=\"padding: 8px; border: 1px solid #ddd;\">Nombre Cliente</th>\n        <th style=\"padding: 8px; border: 1px solid #ddd;\">ID Contacto</th>\n        <th style=\"padding: 8px; border: 1px solid #ddd;\">Nombre Usuario</th>\n        <th style=\"padding: 8px; border: 1px solid #ddd;\">Correo</th>\n        <th style=\"padding: 8px; border: 1px solid #ddd;\">Identificación</th>\n        <th style=\"padding: 8px; border: 1px solid #ddd;\">Fecha Alta</th>\n      </tr>\n    </thead>\n    <tbody>`;\n\n  for (const item of allData) {\n    const row = item.json;\n    htmlContent += `\n      <tr>\n        <td style=\"padding: 6px; border: 1px solid #ddd;\">${row.id || ''}</td>\n        <td style=\"padding: 6px; border: 1px solid #ddd;\">${row.idcliente || ''}</td>\n        <td style=\"padding: 6px; border: 1px solid #ddd;\">${row.nombrecliente || ''}</td>\n        <td style=\"padding: 6px; border: 1px solid #ddd;\">${row.idcontacto || ''}</td>\n        <td style=\"padding: 6px; border: 1px solid #ddd;\">${row.nombreusuario || ''}</td>\n        <td style=\"padding: 6px; border: 1px solid #ddd;\">${row.correoContacto || ''}</td>\n        <td style=\"padding: 6px; border: 1px solid #ddd;\">${row.noidentificacion || ''}</td>\n        <td style=\"padding: 6px; border: 1px solid #ddd;\">${row.fecha_alta || ''}</td>\n      </tr>`;\n  }\n\n  htmlContent += `</tbody></table>\n  <p style=\"font-family: Arial, sans-serif; font-size: 12px; color: #777; margin-top: 20px;\">\n    Este es un mensaje automático generado por el sistema de monitoreo.\n  </p>`;\n}\n\nreturn {\n  hay_datos: tieneDatos,\n  tabla_html: htmlContent\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        64,
+        96
+      ],
+      "id": "a2f22e86-6a2b-47bd-9a35-d89d1c07ba04",
+      "name": "Code",
+      "executeOnce": true,
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9d6e6c85-e1fc-47dc-924f-7b535d50118d",
+              "leftValue": "={{ $json.hay_datos }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        272,
+        96
+      ],
+      "id": "92aa2dc8-0fe8-4f8d-9a3e-b45e94c6797f",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "fromEmail": "automatizaciones@pktuno.com",
+        "toEmail": "gerentecomercial@pktuno.com",
+        "subject": "Validación de identificaciones",
+        "emailFormat": "text",
+        "text": "Buen día compañeros. No se requieren validaciones",
+        "options": {
+          "ccEmail": "SOPORTETI@PKTUNO.COM, SOPORTEDIGITAL@PKTUNO.COM, CFRANCO@PKTUNO.COM"
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        496,
+        160
+      ],
+      "id": "0d13b234-c354-42ab-9da6-76aed78888a5",
+      "name": "Send email1",
+      "webhookId": "b62dd8f7-6384-4969-8aaf-9c0f271cc40b",
+      "credentials": {
+        "smtp": {
+          "id": "fcHCvvfEJ22hetLE",
+          "name": "SMTP account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Query de pktone": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Query de pktone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send email1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "7c71a25b-900a-4079-8f89-fb090cb05a70",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "5b3b7773a095832dea4f30e848125e5009bd06a9efd798b7d0c660e8372bb34f"
+  },
+  "id": "l0hb0dgIMl7ZT1dd",
+  "tags": []
+}
