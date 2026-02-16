@@ -1,0 +1,530 @@
+{
+  "name": "Facebook Chatbot",
+  "nodes": [
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.query[\"hub.challenge\"] }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        32,
+        -304
+      ],
+      "id": "8f313dc1-901f-4741-85ad-194429595231",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "path": "a18687f3-be6e-44ff-a197-ed135c8bd367",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -192,
+        -304
+      ],
+      "id": "94f57ba4-007d-4cfe-8c76-34d03f837818",
+      "name": "Webhook",
+      "webhookId": "a18687f3-be6e-44ff-a197-ed135c8bd367"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "a18687f3-be6e-44ff-a197-ed135c8bd367",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -576,
+        336
+      ],
+      "id": "f9c8159c-083a-49b1-998f-cf486f4ef378",
+      "name": "Webhook1",
+      "webhookId": "abf83404-01bd-469d-8738-6899170c0861"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.body.entry[0].messaging[0].message.text }}",
+        "options": {
+          "systemMessage": "ROL E IDENTIDAD Eres el Asistente Virtual oficial de PKT1. Tu objetivo es proporcionar información precisa sobre nuestros servicios y sucursales. Habla siempre en primera persona del plural (\"nosotros\", \"nuestras sucursales\") y nunca te refieras a PKT1 como \"la empresa\" o \"una empresa de envíos\".\n\nLÓGICA DE CONSULTA OBLIGATORIA (ESTRICTO) Tienes terminantemente prohibido responder preguntas factuales basándote en tu memoria. Para cada nueva pregunta del usuario sobre PKT1, DEBES ejecutar la herramienta de Pinecone. El historial de chat solo sirve para contextualizar, nunca para omitir la búsqueda. Es preferible buscar y no encontrar, que responder con información incompleta.\n\nRECONSTRUCCIÓN INTELIGENTE DE CONSULTAS (KEYWORD EXPANSION) Eres un experto en búsqueda semántica. Si el usuario hace preguntas cortas como \"¿hay más?\", \"¿esas son todas?\", \"¿dónde?\" o \"¿cuánto?\", tienes prohibido usar esa frase literal.\n\nIdentifica el tema (ej: sucursales, alianzas, costos).\n\nGenera una consulta basada en sustantivos y entidades presentes en los documentos.\n\nEjemplo: Si el usuario pregunta \"¿son todas?\" sobre sucursales, tu búsqueda debe ser: \"sucursales PKT1 ubicaciones direcciones teléfonos ciudades\".\n\nConsulta siempre la Descripción de la Herramienta para incluir los términos técnicos exactos (como \"tarifario\" o \"restricciones\") en tu consulta a Pinecone.\n\nRESTRICCIONES Y FUENTE DE VERDAD Tu única fuente de verdad es Pinecone. Prohibido usar cultura general. Si tras la búsqueda no hay resultados, responde exactamente: \"Lo siento, no dispongo de esa información específica sobre PKT1 en este momento, contacta con nuestro equipo\".\n\nFORMATO DE SALIDA Respuestas profesionales, cortas y al grano (máximo 2-3 oraciones). Usa viñetas para listas.",
+          "enableStreaming": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        224,
+        176
+      ],
+      "id": "4e829581-f048-43a7-8e71-8b1c0f84ffb8",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "gpt-4o"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        64,
+        384
+      ],
+      "id": "7415d56a-a742-498a-95b3-1bfbcad04b74",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "EkvVLS8aeYYS9l6I",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "description": "Utiliza esta herramienta para responder CUALQUIER pregunta sobre PKT1, incluyendo su identidad, qué hacemos, servicios, dudas generales ",
+        "topK": 5
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolVectorStore",
+      "typeVersion": 1.1,
+      "position": [
+        384,
+        384
+      ],
+      "id": "b39ed7ee-eae7-41f8-9ff9-908cc6fdc72f",
+      "name": "Answer questions with a vector store"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "gpt-4o"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        640,
+        544
+      ],
+      "id": "48b2d3ee-14f8-4655-994e-adbe711076f7",
+      "name": "OpenAI Chat Model1",
+      "credentials": {
+        "openAiApi": {
+          "id": "EkvVLS8aeYYS9l6I",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "pineconeIndex": {
+          "__rl": true,
+          "value": "pkt1-wiki",
+          "mode": "list",
+          "cachedResultName": "pkt1-wiki"
+        },
+        "options": {
+          "pineconeNamespace": "ConocimientoPKT1"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePinecone",
+      "typeVersion": 1.3,
+      "position": [
+        304,
+        544
+      ],
+      "id": "a39a91a7-a43d-4ccf-b740-3edf5760fb47",
+      "name": "Pinecone Vector Store",
+      "credentials": {
+        "pineconeApi": {
+          "id": "ShrzpmUaOGuTX14J",
+          "name": "PineconeApi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "text-embedding-3-large",
+        "options": {
+          "dimensions": 1024
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        304,
+        720
+      ],
+      "id": "77932d5a-79a8-41db-9e0d-f200aa1ddb98",
+      "name": "Embeddings OpenAI",
+      "credentials": {
+        "openAiApi": {
+          "id": "EkvVLS8aeYYS9l6I",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $json.body.entry[0].messaging[0].sender.id }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        208,
+        384
+      ],
+      "id": "a521f698-9882-4136-b339-f5f2b4e14462",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://pkt1.bitrix24.mx/rest/5143/x3rmlrjmzpvjrn14/imbot.message.add.json",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "BOT_ID",
+              "value": "6991"
+            },
+            {
+              "name": "CLIENT_ID",
+              "value": "7dcnfaid4dwp2y4sdkntpfaxgltvr49y"
+            },
+            {
+              "name": "DIALOG_ID",
+              "value": "={{ $node[\"Webhook\"].json.body[\"data[PARAMS][DIALOG_ID]\"] }}"
+            },
+            {
+              "name": "MESSAGE",
+              "value": "={{ $node[\"AI Agent\"].json.output }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        320,
+        -304
+      ],
+      "id": "9e57561e-5fde-4626-9715-26c0e021495b",
+      "name": "HTTP Request",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v24.0/me/messages?access_token=EAAMtRH3pJ5UBQpUnWZBmZBeo1LJP3jNEG11OZCha79yYUeRncFCZByGRutTbYik7g320K734ZCFvYB45oAlW3ZAb4TZCOeA5m69ZBkwLWlDMEvUuSdzKGTc73iATJ6hlyVbmRLXzAxOsr6NXStA3s4GDLce32fbZAq0mi5wHThNzhOW7Rd34MSyZCv4tBLEO8tZAn6MfLhEaZBnCdUC4NcQACkW2yAZDZD",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ \n{\n  \"recipient\": {\n    \"id\": $('Webhook1').item.json.body.entry[0].messaging[0].sender.id\n  },\n  \"sender_action\": \"typing_on\"\n}\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -288,
+        160
+      ],
+      "id": "efb1603c-71a2-4b18-b341-29c0aa895daf",
+      "name": "Simular escribiendo"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v24.0/me/messages?access_token=EAAMtRH3pJ5UBQpUnWZBmZBeo1LJP3jNEG11OZCha79yYUeRncFCZByGRutTbYik7g320K734ZCFvYB45oAlW3ZAb4TZCOeA5m69ZBkwLWlDMEvUuSdzKGTc73iATJ6hlyVbmRLXzAxOsr6NXStA3s4GDLce32fbZAq0mi5wHThNzhOW7Rd34MSyZCv4tBLEO8tZAn6MfLhEaZBnCdUC4NcQACkW2yAZDZD",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ \n{ \n  \"recipient\": { \n    \"id\": $('Webhook1').item.json.body.entry[0].messaging[0].sender.id \n  }, \n  \"message\": { \n    \"text\": $json.output \n  } \n} \n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        976,
+        160
+      ],
+      "id": "49b02f01-513e-4c0c-9dc2-2b4d97797e72",
+      "name": "Enviar respuesta"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -48,
+        176
+      ],
+      "id": "af81fafa-2117-48cf-a7ce-0458f672fa87",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6f7da64a-f16d-4096-ba07-ea229a519d48",
+              "leftValue": "={{ $json.body.entry[0].messaging[0].message.text }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -288,
+        336
+      ],
+      "id": "b0ccc9cf-1468-47c8-b335-d48f3dd469e0",
+      "name": "Comprobar mensaje con texto"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v24.0/me/messages?access_token=EAAMtRH3pJ5UBQpUnWZBmZBeo1LJP3jNEG11OZCha79yYUeRncFCZByGRutTbYik7g320K734ZCFvYB45oAlW3ZAb4TZCOeA5m69ZBkwLWlDMEvUuSdzKGTc73iATJ6hlyVbmRLXzAxOsr6NXStA3s4GDLce32fbZAq0mi5wHThNzhOW7Rd34MSyZCv4tBLEO8tZAn6MfLhEaZBnCdUC4NcQACkW2yAZDZD",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ \n{\n  \"recipient\": {\n    \"id\": $('Webhook1').item.json.body.entry[0].messaging[0].sender.id\n  },\n  \"sender_action\": \"typing_on\"\n}\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        576,
+        64
+      ],
+      "id": "9adf8300-6206-439e-af3e-8e0e6c81e53b",
+      "name": "Simular escribiendo1"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        768,
+        160
+      ],
+      "id": "12df9993-4402-48ac-9bf9-85f158083df0",
+      "name": "Merge1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook1": {
+      "main": [
+        [
+          {
+            "node": "Comprobar mensaje con texto",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Simular escribiendo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Simular escribiendo1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer questions with a vector store": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Answer questions with a vector store",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pinecone Vector Store": {
+      "ai_vectorStore": [
+        [
+          {
+            "node": "Answer questions with a vector store",
+            "type": "ai_vectorStore",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings OpenAI": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Pinecone Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simular escribiendo": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Comprobar mensaje con texto": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Simular escribiendo1": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Enviar respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "080b1ba2-0344-4351-8f81-a837d6183e1e",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "5b3b7773a095832dea4f30e848125e5009bd06a9efd798b7d0c660e8372bb34f"
+  },
+  "id": "2hj9ORl8hgYQBk30",
+  "tags": []
+}
