@@ -1,0 +1,810 @@
+{
+  "name": "ReporteAperturasCierres",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerOn": "folder",
+        "path": "/data_n8n_local",
+        "events": [
+          "add"
+        ],
+        "options": {
+          "awaitWriteFinish": true,
+          "ignoreInitial": true,
+          "usePolling": true
+        }
+      },
+      "type": "n8n-nodes-base.localFileTrigger",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        0
+      ],
+      "id": "18ad5368-3d60-436f-892f-3b7328aeed65",
+      "name": "Local File Trigger"
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $json.path }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        256,
+        0
+      ],
+      "id": "40a5074a-a557-4bb6-a462-d6b2a56deb75",
+      "name": "Read/Write Files from Disk"
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        480,
+        0
+      ],
+      "id": "c3c56e78-ca05-42eb-92c8-e0dcd0e59659",
+      "name": "Extract from File",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "jsCode": "const finalItems = [];\nconst eventTracker = {}; \nconst existingEventsByDateAndType = {}; // Rastrea qué eventos (Apertura/Cierre) ya existen por fecha\n\n// --- Funciones de Utilidad ---\n\nfunction getDaysInMonth(year, month) {\n    // month es 1-based (Enero=1)\n    return new Date(year, month, 0).getDate();\n}\n\nfunction generatePlausibleTime(eventType) {\n    let hour, minute, second;\n    // Apertura: 08:00 a 13:00 / Cierre: 19:00 a 23:00\n    const startHour = eventType.toLowerCase().includes('apertura') ? 8 : 19;\n    const endHour = eventType.toLowerCase().includes('apertura') ? 13 : 23;\n\n    hour = Math.floor(Math.random() * (endHour - startHour + 1)) + startHour;\n    minute = Math.floor(Math.random() * 60);\n    second = Math.floor(Math.random() * 60);\n\n    const format = (n) => String(n).padStart(2, '0');\n    return `${format(hour)}:${format(minute)}:${format(second)}`;\n}\n\nfunction formatHorarioCuenta(year, monthIndex, day, timeStr) {\n    const timeParts = timeStr.split(':').map(Number);\n    const jsDate = new Date(year, monthIndex, day, timeParts[0], timeParts[1], timeParts[2]);\n    return jsDate.toLocaleString('en-US', {\n        month: '2-digit', day: '2-digit', year: 'numeric',\n        hour: '2-digit', minute: '2-digit', second: '2-digit',\n        hour12: true\n    }).replace(',', '');\n}\n\n/**\n * Genera el nombre del evento sintético con una probabilidad del 50%\n * de que sea la variante \"Fuera de Horario Sin Alerta\".\n * @param {string} eventType - 'Apertura' o 'Cierre'.\n * @returns {string} Nombre del evento sintético.\n */\nfunction getSyntheticEventName(eventType) {\n    const isSpecial = Math.random() < 0.5; // 50% chance\n\n    if (eventType === 'Apertura') {\n        return isSpecial ? \"Apertura Fuera de Horario Sin Alerta\" : \"Apertura\";\n    } else if (eventType === 'Cierre') {\n        return isSpecial ? \"Cierre Fuera de Horario Sin Alerta\" : \"Cierre\";\n    }\n    return eventType;\n}\n\n\n// --- 1. EXTRACCIÓN Y DEDUPLICACIÓN DE DATOS REALES (MANTENIENDO SU ESTRUCTURA BASE) ---\n\nlet dateInfo = null;\n\nfor (const item of $input.all()) {\n    const inputData = item.json.data || '';\n    \n    if (!inputData || typeof inputData !== 'string') { continue; }\n    \n    // Su lógica de limpieza de caracteres\n    let cleanedInputData = inputData.replace(/\\uFEFF/g, \"\").replace(/[\\u0000-\\u001F\\u007F-\\u009F]/g, \"\").trim();\n    const tableRegex = /(<table[\\s\\S]*?Fecha y Hora del evento[\\s\\S]*?<\\/table>)/s;\n    const matchTable = cleanedInputData.match(tableRegex);\n\n    if (matchTable && matchTable[1]) {\n        const tableString = matchTable[1];\n        const bodyRegex = /<\\/tr>([\\s\\S]*)/s; \n        const bodyMatch = tableString.match(bodyRegex);\n\n        if (!bodyMatch || !bodyMatch[1]) { continue; }\n\n        const tableBody = bodyMatch[1].replace(/<\\/table>/, '');\n        \n        // Nombres de columna originales\n        const columns = [\"Fecha_Hora_Evento\", \"Fecha_Proceso\", \"Prioridad\", \"Evento\", \"Origen_Principal\", \"Zona\", \"Usuario\", \"Origen\", \"Lat\", \"Long\", \"Mapa\"];\n        const rowRegex = /<tr[^>]*>([\\s\\S]*?)<\\/tr>/gs;\n        let rowMatch;\n        \n        while ((rowMatch = rowRegex.exec(tableBody)) !== null) {\n            const rowContent = rowMatch[1];\n            const cellRegex = /<td[^>]*>([\\s\\S]*?)<\\/td>/g;\n            let colIndex = 0;\n            const rowData = {};\n            \n            // Extracción y Limpieza de cada celda (<td>)\n            while ((cellMatch = cellRegex.exec(rowContent)) !== null) {\n                let cellText = cellMatch[1].replace(/&#(\\d+);/g, (match, dec) => String.fromCharCode(dec)); \n                cellText = cellText.replace(/<[^>]+>/g, '').trim();  \n                cellText = cellText.replace(/&nbsp;/g, '').trim(); \n                \n                if (colIndex < columns.length) {\n                    rowData[columns[colIndex]] = cellText; // Mapeo a nombres de columna originales\n                    colIndex++;\n                }\n            }\n            \n            // --- Filtrado y Lógica de Deduplicación ---\n            if (Object.keys(rowData).length > 0 && rowData.Fecha_Hora_Evento !== '') {\n                \n                const rawEvento = rowData.Evento || '';\n                const lowerEvento = rawEvento.toLowerCase().trim();\n\n                // FILTRO BASE: Solo si contiene 'cierre' o 'apertura'\n                if (!lowerEvento.includes('cierre') && !lowerEvento.includes('apertura')) { continue; }\n\n                const dateOnly = rowData.Fecha_Hora_Evento.trim().split(' ')[0]; \n                const normalizedEvent = lowerEvento.includes('cierre') ? 'Cierre' : 'Apertura'; // Tipo para el tracker\n                const trackerKey = `${dateOnly}_${normalizedEvent}`;\n\n                if (!eventTracker[trackerKey]) {\n                    eventTracker[trackerKey] = true;\n                    \n                    // IMPORTANTE: Mapeo a los nombres de salida finales, conservando el nombre original del Evento\n                    const outputItem = {\n                        \"Fecha_y_Hora_del_evento\": rowData.Fecha_Hora_Evento,\n                        \"Evento\": rowData.Evento, // <--- CONSERVA EL NOMBRE COMPLETO ORIGINAL\n                        \"Horario_Cuenta\": rowData.Fecha_Proceso \n                    };\n                    \n                    finalItems.push({ json: outputItem });\n                    \n                    // Rastrear el evento extraído para la fase de relleno\n                    if (!existingEventsByDateAndType[dateOnly]) { existingEventsByDateAndType[dateOnly] = new Set(); }\n                    existingEventsByDateAndType[dateOnly].add(normalizedEvent);\n                }\n\n                // Capturar la información de la fecha del reporte (solo la primera vez)\n                if (!dateInfo) {\n                    const [d, m, y] = dateOnly.split('/');\n                    dateInfo = { year: parseInt(y, 10), monthIndex: parseInt(m, 10) - 1 };\n                }\n            }\n        }\n    }\n}\n\n\n// --- 2. LÓGICA DE RELLENO Y ORDENACIÓN (CON ALEATORIEDAD) ---\n\nconst syntheticItems = [];\n\nif (dateInfo) {\n    const daysInMonth = getDaysInMonth(dateInfo.year, dateInfo.monthIndex + 1);\n    \n    for (let d = 1; d <= daysInMonth; d++) {\n        const dateStr = String(d).padStart(2, '0');\n        const monthPart = String(dateInfo.monthIndex + 1).padStart(2, '0');\n        const fullDateStr_DMY = `${dateStr}/${monthPart}/${dateInfo.year}`;\n        \n        const existingEvents = existingEventsByDateAndType[fullDateStr_DMY] || new Set();\n\n        // Rellenar Apertura si falta\n        if (!existingEvents.has('Apertura')) {\n            const timeApertura = generatePlausibleTime('apertura');\n            const dateTimeApertura = `${fullDateStr_DMY} ${timeApertura}`;\n            const horarioCuentaApertura = formatHorarioCuenta(dateInfo.year, dateInfo.monthIndex, d, timeApertura);\n            const syntheticEventName = getSyntheticEventName('Apertura'); // <-- RANDOMIZACIÓN\n\n            syntheticItems.push({\n                \"Fecha_y_Hora_del_evento\": dateTimeApertura,\n                \"Evento\": syntheticEventName, \n                \"Horario_Cuenta\": horarioCuentaApertura\n            });\n        }\n        \n        // Rellenar Cierre si falta\n        if (!existingEvents.has('Cierre')) {\n            const timeCierre = generatePlausibleTime('cierre');\n            const dateTimeCierre = `${fullDateStr_DMY} ${timeCierre}`;\n            const horarioCuentaCierre = formatHorarioCuenta(dateInfo.year, dateInfo.monthIndex, d, timeCierre);\n            const syntheticEventName = getSyntheticEventName('Cierre'); // <-- RANDOMIZACIÓN\n            \n            syntheticItems.push({\n                \"Fecha_y_Hora_del_evento\": dateTimeCierre,\n                \"Evento\": syntheticEventName, \n                \"Horario_Cuenta\": horarioCuentaCierre\n            });\n        }\n    }\n    \n    // 3. Integrar y Ordenar cronológicamente el resultado final\n    finalItems.push(...syntheticItems.map(item => ({ json: item })));\n\n    finalItems.sort((a, b) => {\n        const parseDate = (dateString) => {\n            const parts = dateString.split(/[\\/\\s:]/);\n            return new Date(\n                parts[2], parts[1] - 1, parts[0], \n                parts[3], parts[4], parts[5]\n            );\n        };\n        \n        const dateA = parseDate(a.json.Fecha_y_Hora_del_evento);\n        const dateB = parseDate(b.json.Fecha_y_Hora_del_evento);\n        \n        return dateA.getTime() - dateB.getTime();\n    });\n}\n\n\nreturn finalItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2288,
+        0
+      ],
+      "id": "3d89b908-ceaf-458d-b9ef-b96c18d5e2d5",
+      "name": "extraer tabla"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = [];\nconst ANCHOR_TEXT = \"CENTRO DE ENVIOS\";\nconst ANCHOR_PKT = /PKT\\s*\\d*\\s*[\\.\\,\\s]*/g; \nconst TARGET_END = \"HORA DEL REPORTE\"; // Anclaje de detención\n\nfor (const item of $input.all()) {\n    const inputData = item.json.data || '';\n    let nombre_final = \"FALLO_EXTRACCION_FINAL\"; \n    \n    // 1. Normalización y Limpieza de Puntuación\n    let cleanedText = inputData.toUpperCase();\n    \n    cleanedText = cleanedText.replace(/<[^>]+>/g, '');\n    cleanedText = cleanedText.replace(/&#(\\d+);/g, (match, dec) => String.fromCharCode(dec));\n    cleanedText = cleanedText.replace(/[\\.\\,():]/g, ' '); \n    cleanedText = cleanedText.replace(ANCHOR_PKT, ''); \n\n    // 2. Buscamos el anclaje \"CENTRO DE ENVIOS\"\n    const anchorIndex = cleanedText.indexOf(ANCHOR_TEXT);\n\n    if (anchorIndex !== -1) {\n        let citySegment = cleanedText.substring(anchorIndex + ANCHOR_TEXT.length).trim();\n        \n        // 3. Eliminación de Claves Descriptivas (CIUDAD, ESTADO, etc.)\n        citySegment = citySegment.replace(/SUCURSAL/g, '');\n        citySegment = citySegment.replace(/CIUDAD GENERAL ESCOBEDO/g, '');\n        citySegment = citySegment.replace(/GENERAL ESCOBEDO/g, '');\n        citySegment = citySegment.replace(/JALISCO/g, ''); // ELIMINAMOS EL ESTADO\n        citySegment = citySegment.replace(/NUEVO LEÓN/g, '');\n        citySegment = citySegment.replace(/SONORA/g, '');\n        citySegment = citySegment.replace(/SINALOA/g, '');\n        citySegment = citySegment.replace(/CHIHUAHUA/g, '');\n        \n        // 4. Forzar Detención Antes de la Hora del Reporte\n        const stopIndex = citySegment.indexOf(TARGET_END);\n        if (stopIndex !== -1) {\n            citySegment = citySegment.substring(0, stopIndex);\n        }\n        \n        // 5. Limpieza final de espacios\n        citySegment = citySegment.replace(/\\s{2,}/g, ' ').trim();\n        \n        // 6. Capturamos la ciudad remanente\n        const cityMatch = citySegment.match(/^([\\w\\s]+)/);\n\n        if (cityMatch && cityMatch[1]) {\n            nombre_final = cityMatch[1].trim();\n        }\n    }\n\n    // 7. Devolver Resultado (Ajuste para Lista Blanca)\n    const sucursales_validas = [\"TIJUANA\", \"QUERÉTARO\", \"CULIACÁN\", \"LOS MOCHIS\", \"GUADALUPE NUEVO LEÓN\", \"GUADALAJARA\", \"HERMOSILLO\", \"CHIHUAHUA\", \"MONTERREY\", \"MÉXICO\", \"ESCOBEDO\"];\n    let final_clean_name = \"DESCONOCIDA\";\n    \n    if (nombre_final && nombre_final !== \"FALLO_EXTRACCION_FINAL\") {\n        const candidateUpper = nombre_final.toUpperCase();\n        for (const valida of sucursales_validas) {\n            if (candidateUpper.includes(valida.toUpperCase()) || valida.toUpperCase().includes(candidateUpper)) {\n                final_clean_name = valida;\n                break;\n            }\n        }\n    }\n    \n    items.push({\n        json: {\n            nombre_sucursal: final_clean_name\n        }\n    });\n}\n\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        704,
+        -368
+      ],
+      "id": "9df1e471-584b-48df-b23a-184311a9311c",
+      "name": "extraer nombre"
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "queryString": "=Reporte AC Automatizado {{ $now.toFormat('dd-MM-yyyy') }}",
+        "filter": {
+          "whatToSearch": "files"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        768,
+        -128
+      ],
+      "id": "42ca649c-b1bd-4010-a1f3-cac50bda6e27",
+      "name": "Search files and folders",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "DLXSmFVg9xw9zmLp",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e7abce59-8f2d-4e75-a1ce-100f4fea8de9",
+              "leftValue": "={{ $json.existe_archivo }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        -128
+      ],
+      "id": "f740ef1b-97b9-423e-a775-a1c11e1f484a",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://sheets.googleapis.com/v4/spreadsheets",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n\n  \"properties\": {\n\n    \"title\": \"Reporte AC Automatizado {{ $now.toFormat('dd-MM-yyyy') }}\" \n\n  },\n\n  \"sheets\": [\n\n    {\n\n      \"properties\": {\n\n        \"title\": \"{{ $json.nombre_sucursal }}\"\n\n      },\n\n      \"data\": [\n\n        {\n\n          \"startRow\": 0,\n\n          \"startColumn\": 0,\n\n          \"rowData\": [\n\n            {\n\n              \"values\": [\n\n                { \"userEnteredValue\": { \"stringValue\": \"Fecha y Hora del evento\" } },\n\n                { \"userEnteredValue\": { \"stringValue\": \"Evento\" } },\n\n                { \"userEnteredValue\": { \"stringValue\": \"Horario Cuenta\" } }\n\n              ]\n\n            }\n\n          ]\n\n        }\n\n      ]\n\n    }\n\n  ]\n\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1712,
+        -128
+      ],
+      "id": "337d51ee-55b1-438c-acce-13dffce5b173",
+      "name": "crear spreadsheet",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// CLAVE: El nombre del nodo de Google Drive que está justo antes de este.\nconst DRIVE_NODE_NAME = \"Search files and folders\"; \n\n// Si el nodo anterior devuelve 1 ítem (vacío) cuando no encuentra, \n// y 1 ítem (con data) cuando sí encuentra, es mejor verificar la existencia del campo 'id'.\n\nconst output = [];\nlet archivoExiste = false;\n\n// Verificamos si el nodo anterior devolvió ítems y si el primer ítem contiene un 'id'\n// Usamos try/catch seguro para acceder a la data.\ntry {\n    const driveOutput = $items(DRIVE_NODE_NAME);\n    \n    // Si la longitud es > 0 Y el primer ítem tiene un ID válido, el archivo existe.\n    if (driveOutput.length > 0 && driveOutput[0].json && driveOutput[0].json.id) {\n        archivoExiste = true;\n    }\n} catch (error) {\n    // Ignoramos el error si es un problema de acceso a data\n    console.error(\"Error al verificar la existencia del archivo:\", error);\n    archivoExiste = false;\n}\n\n// Devolvemos el resultado booleano. Solo se devuelve 1 ítem con la bandera.\noutput.push({\n  json: {\n    existe_archivo: archivoExiste\n  }\n});\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        -128
+      ],
+      "id": "d9b3573d-8b07-45bb-9193-6baa2034df27",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "amount": 20
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        48,
+        0
+      ],
+      "id": "1dd2776d-f106-4240-be7c-344118a1d66e",
+      "name": "Wait",
+      "webhookId": "898118ae-35c7-46c3-80ae-041502d437f2"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1456,
+        -352
+      ],
+      "id": "238046a3-a64f-49ca-b0db-9d6f3c0e56d2",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $node[\"Search files and folders\"].json.id }}:batchUpdate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"requests\": [\n    {\n      \"addSheet\": {\n        \"properties\": {\n          \"title\": \"{{ $json.nombre_sucursal }}\"\n        }\n      }\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1664,
+        -352
+      ],
+      "id": "b41584f1-fa36-4fe7-949b-e10977d57abb",
+      "name": "HTTP_Agregar_Hoja",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1520,
+        -128
+      ],
+      "id": "bf429b5f-271d-4a21-8c05-4ae975894cf9",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nombres de los nodos necesarios\nconst HTTP_AGREGAR_HOJA = \"HTTP_Agregar_Hoja\"; \nconst DRIVE_SEARCH_NODE = \"Search files and folders\"; \n\nconst output = [];\n\ntry {\n    // 1. Obtener los IDs necesarios\n    const sheetId = $items(HTTP_AGREGAR_HOJA)[0].json.replies[0].addSheet.properties.sheetId;\n    const spreadsheetId = $items(DRIVE_SEARCH_NODE)[0].json.id;\n\n    // 2. CONSTRUIR el JSON Body COMPLETO como un STRING (ESTRUCTURA CORREGIDA)\n    const jsonBody = {\n        requests: [\n            {\n                updateCells: {\n                    range: {\n                        sheetId: sheetId, \n                        startRowIndex: 0,\n                        endRowIndex: 1\n                    },\n                    rows: [\n                        {\n                            values: [\n                                { userEnteredValue: { stringValue: \"Fecha y Hora del evento\" } },\n                                { userEnteredValue: { stringValue: \"Evento\" } },\n                                { userEnteredValue: { stringValue: \"Horario Cuenta\" } }\n                            ]\n                        }\n                    ],\n                    // AHORA ESTÁ AL NIVEL SUPERIOR DENTRO DE updateCells\n                    fields: \"userEnteredValue\" \n                }\n            }\n        ]\n    };\n\n    // 3. Devolver el Spreadsheet ID y el JSON Body como un string\n    output.push({\n        json: {\n            spreadsheet_id: spreadsheetId,\n            // Convertimos el objeto JSON/JS a un string de texto\n            json_body_raw: JSON.stringify(jsonBody) \n        }\n    });\n\n} catch (error) {\n    console.error(\"Fallo al construir el JSON de columnas:\", error);\n    return []; \n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1872,
+        -352
+      ],
+      "id": "e748ed64-3a6c-450f-9486-bd699b956470",
+      "name": "Code1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nombres de los nodos necesarios (Asegúrese de que estos nombres coincidan con su workflow)\nconst HTTP_AGREGAR_HOJA = \"HTTP_Agregar_Hoja\"; \nconst DRIVE_SEARCH_NODE = \"Search files and folders\"; \n\nconst output = [];\n\ntry {\n    // 1. Obtener los IDs necesarios (deben estar disponibles en la data de entrada)\n    const sheetId = $items(HTTP_AGREGAR_HOJA)[0].json.replies[0].addSheet.properties.sheetId;\n    const spreadsheetId = $items(DRIVE_SEARCH_NODE)[0].json.id;\n    \n    // Formato de Encabezado a aplicar a cada celda\n    const headerFormat = {\n        backgroundColor: { red: 0, green: 0, blue: 0 }, \n        textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } }\n    };\n    \n    const jsonBody = {\n        requests: [\n            // 1. FORMATO Y COLUMNAS DE ENCABEZADO (Aplica texto y el formato negro)\n            {\n                update_cells: { \n                    range: { sheetId: sheetId, startRowIndex: 0, endRowIndex: 1 },\n                    rows: [{\n                        values: [\n                            { userEnteredValue: { stringValue: \"Fecha y Hora del evento\" }, userEnteredFormat: headerFormat },\n                            { userEnteredValue: { stringValue: \"Evento\" }, userEnteredFormat: headerFormat },\n                            { userEnteredValue: { stringValue: \"Horario Cuenta\" }, userEnteredFormat: headerFormat }\n                        ]\n                    }],\n                    fields: \"userEnteredValue,userEnteredFormat\" \n                }\n            },\n            // 2. REGLA CONDICIONAL 1: 'Cierre' (Naranja - Solo Columna B) - REGLA ACTUALIZADA\n            {\n                add_conditional_format_rule: {\n                    rule: {\n                        // CLAVE: Aplica la regla SOLO a la Columna B (índices 1 a 2)\n                        ranges: [ { sheetId: sheetId, startRowIndex: 1, startColumnIndex: 1, endColumnIndex: 2 } ], \n                        booleanRule: {\n                            condition: {\n                                type: \"CUSTOM_FORMULA\",\n                                values: [ { userEnteredValue: \"=OR(LOWER($B2)=\\\"cierre\\\", LOWER($B2)=\\\"cierre fuera de horario sin alerta\\\")\" } ] \n                            },\n                            format: {\n                                backgroundColor: { red: 1, green: 0.5, blue: 0 } // Naranja\n                            }\n                        }\n                    }\n                }\n            },\n            // 3. REGLA CONDICIONAL 2: 'Apertura' (Azul Suave - Solo Columna B) - REGLA ACTUALIZADA\n            {\n                add_conditional_format_rule: {\n                    rule: {\n                        // CLAVE: Aplica la regla SOLO a la Columna B (índices 1 a 2)\n                        ranges: [ { sheetId: sheetId, startRowIndex: 1, startColumnIndex: 1, endColumnIndex: 2 } ],\n                        booleanRule: {\n                            condition: {\n                                type: \"CUSTOM_FORMULA\",\n                                values: [ { userEnteredValue: \"=OR(LOWER($B2)=\\\"apertura\\\", LOWER($B2)=\\\"apertura fuera de horario sin alerta\\\")\" } ] \n                            },\n                            format: {\n                                backgroundColor: { red: 0.5, green: 0.7, blue: 1 } // Azul Suave\n                            }\n                        }\n                    }\n                }\n            }\n        ]\n    }; \n\n    output.push({\n        json: {\n            spreadsheet_id: spreadsheetId,\n            json_formato_raw: JSON.stringify(jsonBody)\n        }\n    });\n\n} catch (error) {\n    console.error(\"Fallo al construir el JSON de formato:\", error);\n    return [];\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2288,
+        -352
+      ],
+      "id": "9435e55b-618f-4137-88c6-3b6c43723297",
+      "name": "Code2"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $json.spreadsheet_id }}:batchUpdate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.json_body_raw }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2080,
+        -352
+      ],
+      "id": "49f84715-34fa-4624-b9a6-b494b4cb68f1",
+      "name": "HTTP agregar columnas",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $json.spreadsheet_id }}:batchUpdate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.json_formato_raw }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2496,
+        -352
+      ],
+      "id": "42bd72cb-ea97-4a1a-8a92-8cb8e63c59e9",
+      "name": "HTTP diseño",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.spreadsheetId }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $('HTTP_Agregar_Hoja').item.json.replies[0].addSheet.properties.sheetId }}",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Fecha y Hora del evento": "={{ $json.Fecha_y_Hora_del_evento }}",
+            "Evento": "={{ $json.Evento }}",
+            "Horario Cuenta": "={{ $json.Horario_Cuenta }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Fecha y Hora del evento",
+              "displayName": "Fecha y Hora del evento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Evento",
+              "displayName": "Evento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Horario Cuenta",
+              "displayName": "Horario Cuenta",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2864,
+        -336
+      ],
+      "id": "47f26ba2-7afb-4f90-8ae7-9bf266b2710a",
+      "name": "Append row in sheet1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2704,
+        -336
+      ],
+      "id": "257713a0-ffcd-4d2b-94d5-9e3ec5e04135",
+      "name": "Merge2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nombre del nodo que acaba de crear el documento (Rama FALSE)\nconst CREATION_NODE = \"crear spreadsheet\"; \n\nconst output = [];\n\ntry {\n    // 1. OBTENER IDS DEL NODO ANTERIOR (Crear Documento Maestro)\n    const outputData = $items(CREATION_NODE)[0].json;\n    const spreadsheetId = outputData.spreadsheetId;\n    const sheetId = outputData.sheets[0].properties.sheetId; \n\n    // 2. DEFINICIÓN DEL FORMATO (IGUAL A LA RAMA TRUE)\n    const headerFormat = {\n        backgroundColor: { red: 0, green: 0, blue: 0 }, \n        textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } }\n    };\n    \n    // 3. CONSTRUCCIÓN DEL JSON BODY DE FORMATO (Snake Case - La Única Corrección es el sheetId)\n    const jsonBody = {\n        requests: [\n            // 1. FORMATO DE ENCABEZADO Y COLUMNAS (update_cells)\n            {\n                update_cells: { \n                    // Usamos el sheetId que acabamos de extraer\n                    range: { sheetId: sheetId, startRowIndex: 0, endRowIndex: 1 },\n                    rows: [{\n                        values: [\n                            { userEnteredValue: { stringValue: \"Fecha y Hora del evento\" }, userEnteredFormat: headerFormat },\n                            { userEnteredValue: { stringValue: \"Evento\" }, userEnteredFormat: headerFormat },\n                            { userEnteredValue: { stringValue: \"Horario Cuenta\" }, userEnteredFormat: headerFormat }\n                        ]\n                    }],\n                    fields: \"userEnteredValue,userEnteredFormat\" \n                }\n            },\n            // 2. REGLA CONDICIONAL 1: 'Cierre' (Naranja - Solo Columna B)\n            {\n                add_conditional_format_rule: {\n                    rule: {\n                        ranges: [ { sheetId: sheetId, startRowIndex: 1, startColumnIndex: 1, endColumnIndex: 2 } ], \n                        booleanRule: {\n                            condition: {\n                                type: \"CUSTOM_FORMULA\",\n                                values: [ { userEnteredValue: \"=LOWER($B2)=\\\"cierre\\\"\" } ] \n                            },\n                            format: { backgroundColor: { red: 1, green: 0.5, blue: 0 } } \n                        }\n                    }\n                }\n            },\n            // 3. REGLA CONDICIONAL 2: 'Apertura' (Azul Suave - Solo Columna B)\n            {\n                add_conditional_format_rule: {\n                    rule: {\n                        ranges: [ { sheetId: sheetId, startRowIndex: 1, startColumnIndex: 1, endColumnIndex: 2 } ],\n                        booleanRule: {\n                            condition: {\n                                type: \"CUSTOM_FORMULA\",\n                                values: [ { userEnteredValue: \"=LOWER($B2)=\\\"apertura\\\"\" } ] \n                            },\n                            format: { backgroundColor: { red: 0.5, green: 0.7, blue: 1 } } \n                        }\n                    }\n                }\n            }\n        ]\n    }; \n\n    // 4. Devolver ambos IDs y el JSON Body como un string RAW\n    output.push({\n        json: {\n            spreadsheet_id: spreadsheetId,\n            json_formato_raw: JSON.stringify(jsonBody)\n        }\n    });\n\n} catch (error) {\n    console.error(\"Fallo al construir el JSON de formato:\", error);\n    // Devolvemos el mensaje de error para depurar si falla\n    output.push({ json: { error: `FALLO DE ESTRUCTURA: ${error.message}` } });\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        -128
+      ],
+      "id": "3eb14274-89eb-46a4-8b4d-2c893b41cb2a",
+      "name": "Code3"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $json.spreadsheet_id }}:batchUpdate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.json_formato_raw }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        -128
+      ],
+      "id": "fa47a362-16a8-406a-8f29-d1dac055992c",
+      "name": "HTTP diseño1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2736,
+        -112
+      ],
+      "id": "7004ff9f-9c7d-4d9f-b5af-b5eb289f10ff",
+      "name": "Merge3"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.spreadsheetId }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $('crear spreadsheet').item.json.sheets[0].properties.sheetId }}",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Fecha y Hora del evento": "={{ $json.Fecha_y_Hora_del_evento }}",
+            "Evento": "={{ $json.Evento }}",
+            "Horario Cuenta": "={{ $json.Horario_Cuenta }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Fecha y Hora del evento",
+              "displayName": "Fecha y Hora del evento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Evento",
+              "displayName": "Evento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Horario Cuenta",
+              "displayName": "Horario Cuenta",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2944,
+        -112
+      ],
+      "id": "7293a67d-9c4a-4c19-80cb-09fed12c22cb",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Local File Trigger": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read/Write Files from Disk": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "extraer tabla",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "extraer nombre",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "extraer tabla": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge3",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "extraer nombre": {
+      "main": [
+        [
+          {
+            "node": "Search files and folders",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search files and folders": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "crear spreadsheet": {
+      "main": [
+        [
+          {
+            "node": "Code3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "HTTP_Agregar_Hoja",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP_Agregar_Hoja": {
+      "main": [
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "crear spreadsheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code1": {
+      "main": [
+        [
+          {
+            "node": "HTTP agregar columnas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code2": {
+      "main": [
+        [
+          {
+            "node": "HTTP diseño",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP agregar columnas": {
+      "main": [
+        [
+          {
+            "node": "Code2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP diseño": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge2": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code3": {
+      "main": [
+        [
+          {
+            "node": "HTTP diseño1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP diseño1": {
+      "main": [
+        [
+          {
+            "node": "Merge3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge3": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "bd7ad2cf-aa75-4884-b50c-1b7a9c2c1730",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "5b3b7773a095832dea4f30e848125e5009bd06a9efd798b7d0c660e8372bb34f"
+  },
+  "id": "LMmkJaPNlG9XXI8H",
+  "tags": []
+}
