@@ -1,0 +1,107 @@
+{
+  "name": "Traductor de errores",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "06d26d9f-3626-4fce-9b12-fef033843151",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -304,
+        -368
+      ],
+      "id": "09dfd0c9-9189-4ce2-ba27-3d14d587595f",
+      "name": "Webhook",
+      "webhookId": "06d26d9f-3626-4fce-9b12-fef033843151"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Código de error: {{ $json.body.payload.codigo }} - Detalles: {{ $json.body.payload.mensaje }}",
+        "options": {
+          "systemMessage": "Rol: Intérprete de errores de API. Tarea: Transformar un error de modelState en un JSON de salida\n\nMapeo de Contexto y Secciones: Traduce la ruta del error a estos términos naturales:\n\nOrigin / Destination: Dirección de origen / destino.\n\nClientOrgData / ClientDestData: Datos del remitente / destinatario.\n\nShippingData: Información de los paquetes.\n\nQuotation: Datos de la cotización.\n\nShipCnf: Configuración del envío.\n\nDniInfo: Documentación de identidad.\n\ncartafacturadhl: Detalles de la carta factura internacional.\n\nReglas de Tono y Estructura:\n\nCalidez Humana: No te limites a nombrar el error. Usa frases como \"Por favor, verifica...\", \"Es necesario que...\", \"Parece que hay un detalle con...\".\n\nPrecisión: Debes mencionar exactamente en qué sección está el problema (ej: \"...en los datos del remitente\").\n\nNo tecnicismos: Prohibido usar nombres de variables como ClientOrgData o Isv. Usa \"remitente\" o \"valor asegurado\".\n\nEsquema de Atributos (Referencia):\n\nDirección: CP, Calle, Colonia, Ciudad, Estado, País.\n\nConfiguración: Valor asegurado, tipo de entrega, observaciones.\n\nCliente: Correo electrónico, nombre, teléfono, RFC.\n\nCotización: Paquetería, servicio.\n\nEjemplo de Transformación:\n\nEntrada: objDocumentar.ClientOrgData.Email no válido.\n\nSalida: Por favor, ingresa una dirección de correo electrónico válida en los datos del remitente para continuar."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        -96,
+        -368
+      ],
+      "id": "8ffab22d-5cba-4ce6-803d-8bb4febb9043",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {
+          "maxTokens": 150
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -96,
+        -176
+      ],
+      "id": "16272ad8-a492-4b2e-864a-8beca7c8bfc5",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "EkvVLS8aeYYS9l6I",
+          "name": "OpenAi account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "AI Agent": {
+      "main": [
+        []
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "fe9a5e4e-bffd-4772-8bdc-874edbef84a8",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "5b3b7773a095832dea4f30e848125e5009bd06a9efd798b7d0c660e8372bb34f"
+  },
+  "id": "B47lYOwoPs2FD9mB",
+  "tags": []
+}
