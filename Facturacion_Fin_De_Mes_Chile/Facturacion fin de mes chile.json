@@ -1,0 +1,281 @@
+{
+  "name": "Facturacion fin de mes chile",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 3 1,16 * *"
+            },
+            {
+              "field": "cronExpression",
+              "expression": "15 3 1,16 * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        32,
+        0
+      ],
+      "id": "4c647c5c-4723-4dfa-9a0c-07016d222465",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "https://web.pktuno.cl/CLPKT1/index.php/DocAbonos/generarFctfinMes?procesofinmes=true",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Auth-Token",
+              "value": "YWRtaW5pc3RyYXRvcjpxd2VyMTIzNDU2"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        256,
+        0
+      ],
+      "id": "89802d53-5c77-4f2f-8055-dd1c72eff3ac",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "for (const item of items) {\n  // Asegúrate de que el objeto 'json' existe y tiene la propiedad 'statusCode'\n  if (item.json && item.json.statusCode !== undefined) {\n    const statusCode = item.json.statusCode;\n\n    // Crea el booleano 'exitoso': TRUE si statusCode es 200 o 204.\n    // FALSE en cualquier otro caso.\n    if (statusCode === 200 || statusCode === 204) {\n      item.json.exitoso = true;\n    } else {\n      item.json.exitoso = false;\n    }\n  } else {\n    // Manejo de caso donde no hay statusCode (ej. error de conexión previo)\n    item.json.exitoso = false;\n    item.json.errorInfo = 'StatusCode no encontrado en el elemento.';\n  }\n}\n\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        0
+      ],
+      "id": "b4536471-6d19-44d1-a028-1ba3a44b16ed",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "448348f9-fc06-483e-80b9-3586b801e18e",
+              "leftValue": "={{ $json.exitoso }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        672,
+        0
+      ],
+      "id": "49856f9e-942c-40a1-92c8-11cccd5b226a",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "fromEmail": "automatizaciones@pktuno.com",
+        "toEmail": "SOPORTETI@PKTUNO.COM",
+        "subject": "SERVICIO AUTOMATIZADO DE GENERACION DE FACTURAS ",
+        "emailFormat": "text",
+        "text": "Me complace informar que el resultado de la automatización fue exitoso",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        928,
+        -96
+      ],
+      "id": "291ada3f-88af-4dc6-9593-a53edb874b5c",
+      "name": "Send email",
+      "webhookId": "9d8539be-7f6b-4207-b96f-4e745da775d8",
+      "credentials": {
+        "smtp": {
+          "id": "fcHCvvfEJ22hetLE",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "automatizaciones@pktuno.com",
+        "toEmail": "SOPORTETI@PKTUNO.COM",
+        "subject": "SERVICIO AUTOMATIZADO DE GENERACION DE FACTURAS ",
+        "emailFormat": "text",
+        "text": "Lo siento mucho, la automatización falló",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        928,
+        80
+      ],
+      "id": "7179c2b5-3d90-4582-81c7-5d7d87d88503",
+      "name": "Send email1",
+      "webhookId": "9d8539be-7f6b-4207-b96f-4e745da775d8",
+      "credentials": {
+        "smtp": {
+          "id": "fcHCvvfEJ22hetLE",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "automatizaciones@pktuno.com",
+        "toEmail": "SOPORTEDIGITAL@PKTUNO.COM",
+        "subject": "SERVICIO AUTOMATIZADO DE GENERACION DE FACTURAS ",
+        "emailFormat": "text",
+        "text": "Me complace informar que el resultado de la automatización fue exitoso",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        928,
+        -256
+      ],
+      "id": "705bc931-31b0-47db-bdca-f54a40caf92a",
+      "name": "Send email2",
+      "webhookId": "9d8539be-7f6b-4207-b96f-4e745da775d8",
+      "credentials": {
+        "smtp": {
+          "id": "fcHCvvfEJ22hetLE",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "automatizaciones@pktuno.com",
+        "toEmail": "SOPORTEDIGITAL@PKTUNO.COM",
+        "subject": "SERVICIO AUTOMATIZADO DE GENERACION DE FACTURAS ",
+        "emailFormat": "text",
+        "text": "Lo siento mucho, la automatización falló",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        928,
+        240
+      ],
+      "id": "cd4ff2c9-47d7-4123-a235-75fc143f85e9",
+      "name": "Send email3",
+      "webhookId": "9d8539be-7f6b-4207-b96f-4e745da775d8",
+      "credentials": {
+        "smtp": {
+          "id": "fcHCvvfEJ22hetLE",
+          "name": "SMTP account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send email2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send email1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send email3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "7d1ab4bb-67b9-420b-a7a6-94d9d3211318",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "5b3b7773a095832dea4f30e848125e5009bd06a9efd798b7d0c660e8372bb34f"
+  },
+  "id": "ooXZNBErcusr2gAY",
+  "tags": []
+}
