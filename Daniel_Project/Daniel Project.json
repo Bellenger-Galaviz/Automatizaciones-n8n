@@ -1,0 +1,125 @@
+{
+  "name": "Daniel Project",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2.1,
+      "position": [
+        -176,
+        0
+      ],
+      "id": "218ac242-a7e9-4f71-ba4f-32c0ed971daa",
+      "name": "Email Trigger (IMAP)",
+      "credentials": {
+        "imap": {
+          "id": "7zkkRLhQ46QYXsvd",
+          "name": "IMAP account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Acceso al campo 'subject' del nodo IMAP anterior\nconst subject = items[0].json.subject; \n\nif (!subject) {\n    throw new Error(\"El asunto del correo está vacío.\");\n}\n\n// Regex estricto para capturar el patrón YYYY-MM-DD/YYYY-MM-DD\nconst datePattern = /(\\d{4}-\\d{2}-\\d{2})\\/(\\d{4}-\\d{2}-\\d{2})/;\nconst match = subject.match(datePattern);\n\nif (match) {\n    return {\n        FechaInicio: match[1],\n        FechaFin: match[2]\n    };\n} else {\n    // Si el asunto no cumple el formato, el nodo fallará indicando el motivo\n    throw new Error(\"Formato de fechas no encontrado en el asunto: \" + subject);\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        144,
+        0
+      ],
+      "id": "2e573fe5-d8fe-43dc-b220-3f985df81149",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n    d.noguia AS 'Guía',\n    d.fecha AS 'Fecha',\n    a.nombre AS 'Alianza',\n    d.nombreclienteorigen AS 'Remitente',\n    d.nombreclientedestino AS 'Destinatario',\n    d.ciudaddestino AS 'Destino',\n    d.total AS 'Importe Total',\n    d.estatus AS 'Estado Actual'\nFROM \n    maestro.documentacion_all d\nINNER JOIN \n    maestro.alianzas a ON d.idalianza = a.id\nWHERE \n    d.idfranquicia = 97 \n    AND d.fecha BETWEEN '{{ $json.FechaInicio }}' AND '{{ $json.FechaFin }}'\n    AND d.estatus = 'A'\nORDER BY \n    d.fecha DESC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        416,
+        -96
+      ],
+      "id": "a5d442f5-6464-4c0b-8b3a-2e2340c7adb1",
+      "name": "bitacora de envios",
+      "credentials": {
+        "mySql": {
+          "id": "D7rfj8wKPgAsa0ES",
+          "name": "MySQL account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n    r.numeroguia AS 'Guía',\n    r.fecha AS 'Fecha Movimiento',\n    r.hora AS 'Hora',\n    r.ubicacion AS 'Ubicación',\n    r.estatus AS 'Evento/Estado'\nFROM \n    rastreo r\nWHERE \n    r.fecha BETWEEN '{{ $json.FechaInicio }}' AND '{{ $json.FechaFin }}'\nORDER BY \n    r.fecha DESC, r.hora DESC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        416,
+        128
+      ],
+      "id": "6557f5a0-c5f8-4ce4-a6d7-2d90c931a2b2",
+      "name": "Rastreo",
+      "credentials": {
+        "mySql": {
+          "id": "D7rfj8wKPgAsa0ES",
+          "name": "MySQL account 2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Email Trigger (IMAP)": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "bitacora de envios",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Rastreo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "bitacora de envios": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "fcd214d7-1ad2-4558-b635-5974e0d904e5",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "5b3b7773a095832dea4f30e848125e5009bd06a9efd798b7d0c660e8372bb34f"
+  },
+  "id": "Ju4GOdL8fSu9FCHW",
+  "tags": []
+}
