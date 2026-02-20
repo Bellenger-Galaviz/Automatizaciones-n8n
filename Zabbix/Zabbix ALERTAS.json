@@ -1,0 +1,103 @@
+{
+  "name": "Zabbix ALERTAS",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "b00ffd48-8256-4c88-af82-5a6fcfe52aa0",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "092b96e3-6d38-4f6c-88eb-893f1793916d",
+      "name": "Webhook",
+      "webhookId": "b00ffd48-8256-4c88-af82-5a6fcfe52aa0"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://pkt1.bitrix24.mx/rest/111/4pdij5vwqmuxyg6a/im.message.add.json",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "DIALOG_ID",
+              "value": "chat13675"
+            },
+            {
+              "name": "MESSAGE",
+              "value": "={{ $json.formattedMessage }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        0
+      ],
+      "id": "467ab84e-ed14-4a5a-8508-574ed3b7846f",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Este código itera sobre los elementos y crea una cadena de texto formateada\nfor (const item of $input.all()) {\n  const body = item.json.body;\n  \n  // Construcción del mensaje con saltos de línea\n  let messageText = \"⚠️ ALERTA DE ZABBIX ⚠️\\n\";\n  messageText += `Equipo: ${body.equipo || 'N/A'}\\n`;\n  messageText += `Evento: ${body.evento || 'N/A'}\\n`;\n  messageText += `Severidad: ${body.severidad || 'N/A'}\\n`;\n  messageText += `Detalle: ${JSON.stringify(body)}`; // Incluye el resto por si acaso\n\n  item.json.formattedMessage = messageText;\n}\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        304,
+        0
+      ],
+      "id": "cdfdb829-93a9-4163-a1c9-68d984c58488",
+      "name": "Code"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "4b827ce1-4a97-44b7-962a-330f6c8e92c3",
+  "meta": {
+    "instanceId": "f26f21c2ce784b9261baaa3fbdb6e829268515992f9345a7ceb4fc41df28e288"
+  },
+  "id": "Uc7xlwgGUKEAoBU8",
+  "tags": []
+}
