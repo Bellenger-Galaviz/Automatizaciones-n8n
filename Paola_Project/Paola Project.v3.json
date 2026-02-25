@@ -1,0 +1,2517 @@
+{
+  "name": "Paola DEFINITIVO",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        -1664,
+        1424
+      ],
+      "id": "1962aea9-5560-429c-873a-ae6052bad302",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "EXEC sp_ConsultaMovimientosPoliza\n     @FechaInicio = '{{ $json.fechaInicio }}',\n     @FechaFin    = '{{ $json.fechaFin }}',\n     @IdCuenta    = 26775"
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        -848,
+        1760
+      ],
+      "id": "f3f3a342-9dac-4242-a012-9db75eb49777",
+      "name": "Jalar datos de compac",
+      "credentials": {
+        "microsoftSql": {
+          "id": "Q7bsjKJhgJChiXUZ",
+          "name": "Microsoft SQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = [];\n\nfor (const item of items) {\n  if (item.binary) {\n    for (const key of Object.keys(item.binary)) {\n      const file = item.binary[key];\n      if (file.fileName.toLowerCase().endsWith('.xlsx') || file.fileName.toLowerCase().endsWith('.xls')) {\n        result.push({\n          json: item.json, // Mantiene los datos originales del ítem\n          binary: {\n            data: file\n          }\n        });\n      }\n    }\n  }\n}\n\nreturn result;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1904,
+        1424
+      ],
+      "id": "844a9721-ac4b-43e9-9f2b-b585649b8a6f",
+      "name": "Pasar solo el excel"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "fieldsToMatchString": "Cleaned_Factura",
+        "joinMode": "keepEverything",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -416,
+        1440
+      ],
+      "id": "5d90be5c-2b93-4fdc-b3c3-38edd36b21fc",
+      "name": "Merge2"
+    },
+    {
+      "parameters": {
+        "jsCode": "for (const item of items) {\n  // Accede a la columna de referencia de SQL\n  let reference = item.json.Referencia;\n\n  if (reference && typeof reference === 'string') {\n    // 1. Elimina el prefijo 'F-LMM' (se usa /i para que no distinga mayúsculas/minúsculas)\n    //    y usa .trim() para quitar cualquier espacio extra.\n    let cleanedReference = reference.trim().replace(/^F-LMM/i, '');\n\n    // 2. Crea una nueva columna con el valor limpio\n    item.json.Cleaned_Factura = cleanedReference;\n  }\n}\n\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -624,
+        1760
+      ],
+      "id": "99d3587e-519b-48fc-89d0-9d3e4763ca92",
+      "name": "Limpiar la referencia"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Obtiene todos los ítems de entrada\nconst items = $input.all();\nconst dateField = 'FECHA_FACTURA';\n\n/**\n * Procesa strings en formato DD/MM/YYYY\n */\nconst parseDateString = (dateString) => {\n    const datePart = String(dateString).split(' ')[0]; \n    const parts = datePart.split('/');\n    \n    if (parts.length === 3) {\n        const day = parseInt(parts[0], 10);\n        const month = parseInt(parts[1], 10) - 1; \n        const year = parseInt(parts[2], 10);\n        return new Date(year, month, day);\n    }\n    return new Date('Invalid Date');\n};\n\n/**\n * Formatea fecha a 'YYYY-MM-DD'\n */\nconst formatDate = (date) => {\n    if (!date || isNaN(date.getTime())) return null; \n    const yyyy = date.getFullYear();\n    const mm = String(date.getMonth() + 1).padStart(2, '0');\n    const dd = String(date.getDate()).padStart(2, '0');\n    return `${yyyy}-${mm}-${dd}`;\n};\n\nlet minDate = null;\nlet maxDate = null;\n\nfor (const item of items) {\n    const dateValue = item.json[dateField];\n    if (dateValue) {\n        let currentDate = new Date(dateValue);\n        \n        // Fallback si el constructor de Date falla\n        if (isNaN(currentDate.getTime())) {\n            currentDate = parseDateString(dateValue);\n        }\n        \n        if (!isNaN(currentDate.getTime())) { \n            if (minDate === null || currentDate < minDate) {\n                minDate = new Date(currentDate.getTime());\n            }\n            if (maxDate === null || currentDate > maxDate) {\n                maxDate = new Date(currentDate.getTime());\n            }\n        }\n    }\n}\n\nif (minDate && maxDate) {\n    // Incremento forzado de 1 día a la fecha máxima\n    const nextDay = new Date(maxDate.getTime());\n    nextDay.setDate(nextDay.getDate() + 1);\n\n    return [\n        {\n            json: {\n                fechaInicio: formatDate(minDate),\n                fechaFin: formatDate(nextDay), \n            }\n        }\n    ];\n}\n\nreturn [];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        1760
+      ],
+      "id": "5bd83d80-83f0-4571-8da7-147575a7054a",
+      "name": "Variables de fechas"
+    },
+    {
+      "parameters": {
+        "jsCode": "const columnsToKeep = [\n    // CLAVE DE AGRUPACIÓN\n    'FACTURA',\n    // COLUMNAS DE LA IMAGEN\n    'FLETE', 'RAD', 'EAD', 'SEGURO', 'ACUSE', 'COD', 'OTROS', \n    'DESCUENTO', 'SUBTOTAL', 'IVA', 'IVA_RET', 'TOTAL'\n];\n\n// Revisa si el primer ítem es una fila de encabezados\nconst isHeaderRow = items[0] && items[0].json.FACTURA === 'FACTURA';\nconst startIndex = isHeaderRow ? 1 : 0;\n\nconst result = [];\n\nfor (let i = startIndex; i < items.length; i++) {\n    const item = items[i];\n    \n    // Combina datos de la raíz y de 'properties' en un solo objeto\n    const allData = { ...item.json, ...(item.json.properties || {}) };\n    \n    const filteredItem = {};\n    \n    for (const column of columnsToKeep) {\n        // Busca la clave original en el dato, ignorando espacios y mayúsculas/minúsculas\n        const originalKey = Object.keys(allData).find(k => k.trim().toLowerCase().replace(/\\s+/g, '_') === column.trim().toLowerCase().replace(/\\s+/g, '_'));\n        \n        if (originalKey !== undefined) {\n            filteredItem[column] = allData[originalKey];\n        }\n    }\n    \n    // Si la fila tiene valores, la agrega al resultado\n    if (Object.keys(filteredItem).length > 0) {\n        result.push({ json: filteredItem });\n    }\n}\n\nreturn result;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        1424
+      ],
+      "id": "37adbbde-7ac3-4e49-a68e-6e06a0fea334",
+      "name": "extraer columnas cotejo"
+    },
+    {
+      "parameters": {
+        "jsCode": "const groups = {};\n\n// Definimos SOLAMENTE las columnas numéricas para sumar (basado en la imagen)\nconst sumFields = [\n    'TOTAL', 'SUBTOTAL', 'FLETE', 'RAD', 'EAD', 'SEGURO', \n    'ACUSE', 'COD', 'OTROS', 'DESCUENTO', 'IVA', 'IVA_RET'\n];\n\n// Definimos el orden FINAL y estricto de las columnas en el output\nconst outputOrder = [\n    'FACTURA', \n    'FLETE', 'RAD', 'EAD', 'SEGURO', 'ACUSE', 'COD', 'OTROS', \n    'DESCUENTO', 'SUBTOTAL', 'IVA', 'IVA_RET', 'TOTAL'\n];\n\n// 1. Agrupar y Sumar los Datos\nfor (const item of items) {\n    const data = item.json;\n    // Normalizar la FACTURA (clave de agrupación)\n    const facturaKey = String(data.FACTURA).trim().toUpperCase();\n\n    if (!facturaKey) continue; \n\n    if (!groups[facturaKey]) {\n        // Inicializar el grupo con clave y valores de referencia\n        groups[facturaKey] = {\n            FACTURA: facturaKey,\n        };\n        // Inicializar las sumas a 0\n        sumFields.forEach(field => {\n            groups[facturaKey][field] = 0;\n        });\n    }\n    \n    // Sumar todos los campos numéricos\n    sumFields.forEach(field => {\n        const value = parseFloat(data[field]) || 0;\n        groups[facturaKey][field] += value;\n    });\n}\n\n// 2. Formatear y Devolver el Resultado FORZANDO EL ORDEN\nconst result = [];\nconst numericFields = sumFields.concat(['TOTAL']); // Todos son numéricos para formatear\n\nfor (const key in groups) {\n    if (groups.hasOwnProperty(key)) {\n        const groupData = groups[key];\n        const orderedItem = {};\n\n        // Construir el objeto en el orden exacto de outputOrder\n        for (const column of outputOrder) {\n            let value = groupData[column];\n            \n            // Formatear valores numéricos a dos decimales\n            if (numericFields.includes(column)) {\n                 if (typeof value === 'number') {\n                     value = value.toFixed(2);\n                 }\n            }\n            \n            orderedItem[column] = value;\n        }\n\n        result.push({\n            json: orderedItem\n        });\n    }\n}\n\n// *** CÓDIGO AÑADIDO: ELIMINAR LA ÚLTIMA FILA DE TOTALES ***\nif (result.length > 0) {\n    result.pop(); \n}\n// ********************************************************\n\nreturn result;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -848,
+        1424
+      ],
+      "id": "af937219-688a-4d6f-af8b-262f67c5bb49",
+      "name": "sumar facturas iguales"
+    },
+    {
+      "parameters": {
+        "jsCode": "for (const item of items) {\n  // Accede a la columna de referencia de SQL\n  let reference = item.json.FACTURA;\n\n  if (reference && typeof reference === 'string') {\n    // 1. Elimina el prefijo 'LMM' seguido de dos caracteres (por ejemplo, '01')\n    //    y lo que esté antes, para dejar sólo lo que empieza con 'AD'.\n    //    La expresión regular /^.*?(AD)/i busca desde el inicio (^)\n    //    cualquier cosa (.*?) hasta el primer 'AD' y lo captura.\n    //    La expresión regular a usar es: /^LMM\\d{2}/i para los 5 caracteres\n    //    o una más general si el patrón no es fijo.\n    \n    // **Modificación clave:** Elimina los primeros 5 caracteres: 'LMM' + '01'\n    let cleanedReference = reference.trim().replace(/^LMM\\d{2}/i, '');\n\n    // 2. Crea una nueva columna con el valor limpio\n    item.json.Cleaned_Factura = cleanedReference;\n  }\n}\n\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -624,
+        1424
+      ],
+      "id": "7baae5cb-7a90-4ce0-9565-95546a4b7b7b",
+      "name": "Limpiar la referencia1"
+    },
+    {
+      "parameters": {
+        "format": "resolved",
+        "options": {
+          "forceReconnect": 20
+        }
+      },
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2.1,
+      "position": [
+        -3216,
+        1424
+      ],
+      "id": "75b2eba5-ce85-468e-8fb5-8243aa14aac4",
+      "name": "Email Trigger (IMAP)1",
+      "credentials": {
+        "imap": {
+          "id": "kdx2jk6RlZTESs2h",
+          "name": "IMAP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let results = [];\n\n// Procesa todos los ítems recibidos (sin limitarse al primero)\nfor (const item of $input.all()) {\n  if (!item.binary) continue;\n\n  // Recorre todas las llaves binarias del ítem actual\n  for (const key of Object.keys(item.binary)) {\n    const file = item.binary[key];\n    const fileName = file.fileName;\n\n    // Conversión a mayúsculas para comparación ciega\n    const fileNameUpper = fileName.toUpperCase();\n    const searchPattern = \"MONTO MAYOR\";\n\n    // Filtro: extensión .zip Y presencia de la cadena (insensible a mayúsculas/minúsculas)\n    if (fileName.toLowerCase().endsWith('.zip') && fileNameUpper.includes(searchPattern)) {\n      results.push({\n        json: {\n          originalFileName: fileName,\n          extractedFromKey: key\n        },\n        binary: {\n          data: file // Mantiene el archivo original en la propiedad 'data'\n        }\n      });\n    }\n  }\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2144,
+        896
+      ],
+      "id": "445358ea-28ab-4751-a684-af2d54039efa",
+      "name": "MONTO MAYOR"
+    },
+    {
+      "parameters": {
+        "jsCode": "let results = [];\n\n// Procesa la totalidad de los ítems de entrada\nfor (const item of $input.all()) {\n  if (!item.binary) continue;\n\n  // Itera sobre cada archivo binario dentro del ítem\n  for (const key of Object.keys(item.binary)) {\n    const file = item.binary[key];\n    const fileName = file.fileName;\n\n    const fileNameUpper = fileName.toUpperCase();\n    const searchPattern = \"ECOMMERCE\";\n    const excludePattern = \"MENOR\";\n\n    // Validación: debe ser .zip, contener \"ECOMMERCE\" y NO contener \"MENOR\"\n    if (\n      fileName.toLowerCase().endsWith('.zip') &&\n      fileNameUpper.includes(searchPattern) &&\n      !fileNameUpper.includes(excludePattern)\n    ) {\n      results.push({\n        json: {\n          originalFileName: fileName,\n          extractedFromKey: key\n        },\n        binary: {\n          data: file\n        }\n      });\n    }\n  }\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2144,
+        1104
+      ],
+      "id": "252ad558-6860-4db8-8658-9a7e12ec4e99",
+      "name": "ECOMMERCE MAYOR"
+    },
+    {
+      "parameters": {
+        "jsCode": "let results = [];\n\n// Procesa todos los ítems de entrada\nfor (const item of $input.all()) {\n  if (!item.binary) continue;\n\n  // Itera sobre todas las llaves binarias (file_0, file_1, etc.)\n  for (const key of Object.keys(item.binary)) {\n    const binaryFile = item.binary[key];\n    const fileName = binaryFile.fileName || \"\";\n\n    // Validación por extensión .xml (insensible a mayúsculas)\n    if (fileName.toLowerCase().endsWith('.xml')) {\n      results.push({\n        json: {\n          fileName: fileName,\n          originalKey: key\n        },\n        binary: {\n          data: binaryFile // El archivo pasa a la propiedad 'data'\n        }\n      });\n    }\n  }\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1744,
+        896
+      ],
+      "id": "0453fa92-1513-42df-92f9-5ad66eb853f1",
+      "name": "Filtrar xml1"
+    },
+    {
+      "parameters": {
+        "jsCode": "let results = [];\n\n// Procesa todos los ítems de entrada\nfor (const item of $input.all()) {\n  if (!item.binary) continue;\n\n  // Itera sobre todas las llaves binarias (file_0, file_1, etc.)\n  for (const key of Object.keys(item.binary)) {\n    const binaryFile = item.binary[key];\n    const fileName = binaryFile.fileName || \"\";\n\n    // Validación por extensión .xml (insensible a mayúsculas)\n    if (fileName.toLowerCase().endsWith('.xml')) {\n      results.push({\n        json: {\n          fileName: fileName,\n          originalKey: key\n        },\n        binary: {\n          data: binaryFile // El archivo pasa a la propiedad 'data'\n        }\n      });\n    }\n  }\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1744,
+        1104
+      ],
+      "id": "2e8ae62f-6c85-418d-abe6-0cb96e9acc54",
+      "name": "Filtrar xml2"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.compression",
+      "typeVersion": 1.1,
+      "position": [
+        -1952,
+        896
+      ],
+      "id": "d7af7edb-eaab-4085-9449-e33396143fcf",
+      "name": "Compression"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.compression",
+      "typeVersion": 1.1,
+      "position": [
+        -1952,
+        1104
+      ],
+      "id": "f0691172-4e94-4a4c-bf0d-e4a210e8eebb",
+      "name": "Compression1"
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "/files/entrada.rar",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        -2784,
+        1008
+      ],
+      "id": "bd1a0096-d805-47c3-8b3b-420b3cedc7a8",
+      "name": "Guardar winrar"
+    },
+    {
+      "parameters": {
+        "command": "unrar x -o+ /files/entrada.rar /files/salida/"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        -2592,
+        1008
+      ],
+      "id": "39fa196b-0da4-427c-9665-7b18d80ae890",
+      "name": "Descomprimir winrar"
+    },
+    {
+      "parameters": {
+        "fileSelector": "/files/salida/*",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        -2400,
+        1008
+      ],
+      "id": "44d05cc5-c0d6-4626-a8b4-741a97e57c6e",
+      "name": "Read/Write Files from Disk"
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = [];\n\n// Iteramos sobre todos los ítems recibidos, no solo el primero\nfor (const item of items) {\n  if (item.binary) {\n    for (const key of Object.keys(item.binary)) {\n      const file = item.binary[key];\n      if (file.fileName.toLowerCase().endsWith('.rar')) {\n        output.push({\n          json: {}, \n          binary: {\n            data: file\n          }\n        });\n      }\n    }\n  }\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2992,
+        1008
+      ],
+      "id": "3bc32510-7a19-46ef-a02f-46c977ae8356",
+      "name": "Filtrar .rar"
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch",
+        "useDataOfInput": 2
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -1296,
+        912
+      ],
+      "id": "3e9618ca-238a-41ca-bd06-cc4a7de8a49a",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch",
+        "useDataOfInput": 2
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -1296,
+        1120
+      ],
+      "id": "4092ca28-076d-4c1d-ae8a-f7ea1c7f05c6",
+      "name": "Merge3"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => {\n    const raw = item.json;\n\n    // Conversión de valores a números para asegurar precisión en cálculos\n    const flete = parseFloat(raw.FLETE || 0);\n    const rad = parseFloat(raw.RAD || 0);\n    const ead = parseFloat(raw.EAD || 0);\n    const seguro = parseFloat(raw.SEGURO || 0);\n    const acuse = parseFloat(raw.ACUSE || 0);\n    const cod = parseFloat(raw.COD || 0);\n    const otros = parseFloat(raw.OTROS || 0);\n    const descuento = parseFloat(raw.DESCUENTO || 0);\n    const subtotal = parseFloat(raw.SUBTOTAL || 0);\n\n    // Cálculos actualizados según sus instrucciones\n    const impteAntesDescto = descuento + subtotal;\n    const otrosServicios = acuse + cod + otros;\n    const totalCalculado = flete + rad + ead + otrosServicios + seguro;\n    \n    // Nueva fórmula para FLETE_ALIANZA\n    const fleteAlianza = flete + ead - descuento;\n\n    return {\n        json: {\n            ...raw, // Preserva todas las columnas originales (GUIA hasta PERSONA_RECIBE)\n            \"IMPTE_ANTES_DE_DESCTO\": impteAntesDescto.toFixed(2),\n            \"  \": \"\", // Columna de separación vacía\n            \"FLETE \": flete.toFixed(2),\n            \"RAD \": rad.toFixed(2),\n            \"EAD \": ead.toFixed(2),\n            \"OTROS_SERVICIOS\": otrosServicios.toFixed(2),\n            \"SEGURO \": seguro.toFixed(2),\n            \"TOTAL \": totalCalculado.toFixed(2),\n            \"ES\": \"E\", // Valor actualizado a \"E\"\n            \"FLETE_ALIANZA\": fleteAlianza.toFixed(2) // Cálculo actualizado\n        }\n    };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -944,
+        1120
+      ],
+      "id": "88f37fd9-ec59-4457-8181-36c1f043ce04",
+      "name": "Agregar Columnas"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => {\n    const raw = item.json;\n\n    // Conversión de valores a números para cálculos precisos\n    const flete = parseFloat(raw.FLETE || 0);\n    const rad = parseFloat(raw.RAD || 0);\n    const ead = parseFloat(raw.EAD || 0);\n    const seguro = parseFloat(raw.SEGURO || 0);\n    const acuse = parseFloat(raw.ACUSE || 0);\n    const cod = parseFloat(raw.COD || 0);\n    const otros = parseFloat(raw.OTROS || 0);\n    const descuento = parseFloat(raw.DESCUENTO || 0);\n    const subtotal = parseFloat(raw.SUBTOTAL || 0);\n\n    // Cálculos según sus fórmulas\n    const impteAntesDescto = descuento + subtotal;\n    const otrosServicios = acuse + cod + otros;\n    const totalCalculado = flete + rad + ead + otrosServicios + seguro;\n    const fleteAlianza = flete * 0.39;\n\n    return {\n        json: {\n            ...raw, // Mantiene el orden original hasta PERSONA_RECIBE\n            \"IMPTE_ANTES_DE_DESCTO\": impteAntesDescto.toFixed(2),\n            \"  \": \"\", // Columna totalmente vacía\n            \"FLETE \": flete.toFixed(2),\n            \"RAD \": rad.toFixed(2),\n            \"EAD \": ead.toFixed(2),\n            \"OTROS_SERVICIOS\": otrosServicios.toFixed(2),\n            \"SEGURO \": seguro.toFixed(2),\n            \"TOTAL \": totalCalculado.toFixed(2),\n            \"ES\": \"N\",\n            \"FLETE_ALIANZA\": fleteAlianza.toFixed(2)\n        }\n    };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -944,
+        912
+      ],
+      "id": "8767bb81-0fd7-4f23-a994-f7520b2492eb",
+      "name": "Agregar Columnas1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -752,
+        1008
+      ],
+      "id": "3dd9c8b9-7de9-4db5-8bc2-3a66f87c3185",
+      "name": "Merge5",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://sheets.googleapis.com/v4/spreadsheets",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"properties\": {\n    \"title\": \"COTEJO {{ $('Filtrar facturas').first().json.FECHA_FACTURA.split(' ')[0] }}\"\n  },\n  \"sheets\": [\n    {\n      \"properties\": {\n        \"title\": \"Integracion\",\n        \"gridProperties\": {\n          \"frozenRowCount\": 1\n        }\n      }\n    }\n  ]\n}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -208,
+        784
+      ],
+      "id": "8dc5167a-89aa-4e99-b461-2ff475464d82",
+      "name": "crear spreadsheet",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => {\n    const row = item.json;\n\n    // 1. Reformateo de FECHA_FACTURA: \"16/01/2026 ...\" -> \"2026-01-16\"\n    let fechaISO = \"\";\n    if (row.FECHA_FACTURA) {\n        const soloFecha = row.FECHA_FACTURA.split(\" \")[0]; \n        const partes = soloFecha.split(\"/\"); \n        if (partes.length === 3) {\n            fechaISO = `${partes[2]}-${partes[1]}-${partes[0]}`;\n        }\n    }\n\n    // 2. Limpieza de FACTURA: Recortar hasta que empiece en \"AD\"\n    let facturaLimpia = row.FACTURA || \"\";\n    if (typeof facturaLimpia === \"string\") {\n        const posAD = facturaLimpia.toUpperCase().indexOf(\"AD\");\n        if (posAD !== -1) {\n            facturaLimpia = facturaLimpia.substring(posAD);\n        }\n    }\n\n    // 3. Formateo de FLETE_ALIANZA a Moneda ($)\n    let fleteFormateado = row.FLETE_ALIANZA;\n    if (fleteFormateado !== undefined && fleteFormateado !== null) {\n        // Convierte a número por si viene como texto y aplica formato\n        fleteFormateado = `$${Number(fleteFormateado).toFixed(2)}`;\n    }\n\n    // 4. Retorno con los cambios aplicados\n    return {\n        json: {\n            RASTREO: row.RASTREO,\n            PESO: row.PESO,\n            TOTAL: row.IMPTE_ANTES_DE_DESCTO,\n            FACTURA: facturaLimpia,\n            SUBTOTAL: row.SUBTOTAL,\n            FECHA_FACTURA: fechaISO,\n            FLETE: fleteFormateado // Ahora incluye el símbolo $ y decimales\n        }\n    };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -384,
+        1104
+      ],
+      "id": "f03a1c2c-6f24-473f-985a-d8ca690d1e71",
+      "name": "Extraer columnas del concentrado"
+    },
+    {
+      "parameters": {
+        "url": "=https://www.googleapis.com/drive/v3/files/{{ $json.spreadsheetId }}/export",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "mimeType",
+              "value": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        1744
+      ],
+      "id": "61965407-ab97-4550-b089-d11e0828b75c",
+      "name": "Descargar archivo",
+      "retryOnFail": false,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        64,
+        1088
+      ],
+      "id": "b1409140-8999-458e-9931-aca4fb926c7c",
+      "name": "Merge6"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1024,
+        1744
+      ],
+      "id": "e0b454c2-7515-4fe4-92b2-a9fd7e270b92",
+      "name": "Merge8"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nif (items.length === 0) return [];\n\n// 1. DEFINICIÓN MANUAL: Molde estricto de 8 columnas\nconst columnNames = [\"Fecha\", \"Tipo\", \"numero\", \"Concepto\", \"Referencia\", \"cargo\", \"abono\", \"Cleaned_Factura\"];\n\n// Colores definidos\nconst redText = { red: 0.8, green: 0, blue: 0 };\nconst headerBg = { red: 0.7, green: 0.7, blue: 0.7 };\nconst softGrid = { red: 0.85, green: 0.85, blue: 0.85 }; // Gris cuadrícula Excel\n\n// 2. Mapear datos utilizando el patrón de seguridad [null, ...items]\nconst rows = [null, ...items].map((item, rowIndex) => {\n  const isHeader = rowIndex === 0;\n  const rowData = isHeader ? {} : item.json;\n\n  return {\n    values: columnNames.map((colName) => {\n      let rawValue = isHeader ? colName : rowData[colName];\n      \n      // Limpieza de Fecha para evitar la marca de tiempo de n8n\n      if (!isHeader && colName === \"Fecha\" && rawValue) {\n          rawValue = String(rawValue).split(\"T\")[0];\n      }\n\n      // REGLA: Llenar campos vacíos con 0\n      const isEmpty = rawValue === null || rawValue === undefined || String(rawValue).trim() === \"\";\n      if (!isHeader && isEmpty) {\n          rawValue = 0;\n      }\n\n      const strVal = String(rawValue || \"0\").trim();\n      \n      // Lógica de detección: cargo y abono son moneda, Fecha se excluye de parseFloat\n      const isDateColumn = colName === \"Fecha\"; \n      const numericValue = parseFloat(strVal.replace(/[$,]/g, ''));\n      const isNumeric = !isHeader && !isNaN(numericValue) && !isDateColumn;\n      \n      const isMoney = isNumeric && (colName === \"cargo\" || colName === \"abono\");\n      const isNegative = isNumeric && numericValue < 0;\n\n      const cellFormat = {\n        textFormat: {\n          foregroundColor: isNegative ? redText : { red: 0, green: 0, blue: 0 },\n          bold: isHeader,\n          fontSize: isHeader ? 11 : 10\n        },\n        backgroundColor: isHeader ? headerBg : { red: 1, green: 1, blue: 1 },\n        horizontalAlignment: (isNumeric || isMoney) ? \"RIGHT\" : \"LEFT\",\n        \n        // INTEGRACIÓN DE LÍNEAS GRISES TENUES PARA EXCEL\n        borders: {\n          top: { style: \"SOLID\", color: softGrid },\n          bottom: { style: \"SOLID\", color: softGrid },\n          left: { style: \"SOLID\", color: softGrid },\n          right: { style: \"SOLID\", color: softGrid }\n        }\n      };\n\n      const cellData = {};\n\n      if (isHeader) {\n        cellData.userEnteredValue = { stringValue: strVal };\n        cellData.userEnteredFormat = cellFormat;\n      } else if (isMoney) {\n        cellData.userEnteredValue = { numberValue: numericValue };\n        cellData.userEnteredFormat = { \n          ...cellFormat, \n          numberFormat: { type: \"CURRENCY\", pattern: \"$#,##0.00\" } \n        };\n      } else if (isNumeric) {\n        cellData.userEnteredValue = { numberValue: numericValue };\n        cellData.userEnteredFormat = cellFormat;\n      } else {\n        cellData.userEnteredValue = { stringValue: strVal };\n        cellData.userEnteredFormat = cellFormat;\n      }\n\n      return cellData;\n    })\n  };\n});\n\nreturn [{ json: { rowData: rows } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -32,
+        1760
+      ],
+      "id": "4fc0959a-1ed4-4ab9-a0d8-5038e26beb77",
+      "name": "Crear diseño3"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $json.spreadsheetId }}:batchUpdate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"requests\": [\n    {\n      \"addSheet\": {\n        \"properties\": {\n          \"title\": \"ContPaq\",\n          \"sheetId\": 999125,\n          \"gridProperties\": {\n            \"rowCount\": 3000,\n            \"columnCount\": 26\n          }\n        }\n      }\n    },\n    {\n      \"updateCells\": {\n        \"rows\": {{ JSON.stringify($json.rowData) }},\n        \"fields\": \"*\",\n        \"start\": {\n          \"sheetId\": 999125,\n          \"rowIndex\": 0,\n          \"columnIndex\": 0\n        }\n      }\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1376,
+        1744
+      ],
+      "id": "640cf4eb-4491-44be-b2a7-861f114a73ca",
+      "name": "HTTP_Agregar_Hoja3",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.spreadsheetId }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $('Agregar Concentrado').item.json.replies[0].addSheet.properties.sheetId }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        736,
+        816
+      ],
+      "id": "203ef80a-b782-4dd1-aa6c-639fe1e59638",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {
+          "fileName": "Concentrado"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        816
+      ],
+      "id": "4b5f68c7-6d2b-4c10-917c-decd60a3c58b",
+      "name": "Convert to File3",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://ws.paq1.com.mx/api/v2/Proceso/UpdateInfo/2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "FilaInicio",
+              "value": "2"
+            },
+            {
+              "name": "ColumnaInicio",
+              "value": "0"
+            },
+            {
+              "name": "FechaFactura",
+              "value": "false"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "FileData",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1296,
+        896
+      ],
+      "id": "398bbc8f-86eb-404f-9010-c76baa3251cd",
+      "name": "Subir a PKTONE"
+    },
+    {
+      "parameters": {
+        "url": "https://reportes.paq1.com.mx/Api/V1/Alianza/Reporte/Cotejo",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "idAlianza",
+              "value": "2"
+            },
+            {
+              "name": "fechaInicio",
+              "value": "={{ $('Extraer columnas del concentrado').first().json.FECHA_FACTURA }}"
+            },
+            {
+              "name": "fechaFin",
+              "value": "={{ $('Extraer columnas del concentrado').first().json.FECHA_FACTURA }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1296,
+        1088
+      ],
+      "id": "eaadd292-54c8-4dfa-b7d2-b27b5cfa710e",
+      "name": "Bajar de PKTONE"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {
+          "includeBinaries": true
+        }
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2704,
+        1184
+      ],
+      "id": "d1d72854-a0c1-42ae-a40c-53a59e7f2da0",
+      "name": "Aggregate1"
+    },
+    {
+      "parameters": {
+        "fromEmail": "automatizaciones@pktuno.com",
+        "toEmail": "bgalaviz@pktuno.com",
+        "subject": "Cotejo terminado",
+        "emailFormat": "text",
+        "options": {
+          "attachments": "data, data_1"
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2864,
+        1184
+      ],
+      "id": "db28a0f1-d9e6-4827-96b1-3ff0ec1dc156",
+      "name": "Send email2",
+      "webhookId": "b129f668-34fb-4728-934e-15f1574ba6d7",
+      "credentials": {
+        "smtp": {
+          "id": "fcHCvvfEJ22hetLE",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "command": "rm /files/entrada.rar && rm -rf /files/salida/*"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        3040,
+        1184
+      ],
+      "id": "73bf6409-2827-427e-8ca1-6d1c5f231c3f",
+      "name": "Limpiar carpeta2"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $binary.data ? true : false }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "id": "d7f50ebe-6f50-45f4-abef-662daca59d2e"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Tiene Archivo"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "b3eb1463-6f37-461f-a168-192b7209308a",
+                    "leftValue": "={{ $binary.data ? true : false }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "false",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Sin Archivo"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1920,
+        896
+      ],
+      "id": "bbfb7f9f-b765-4d8d-8e6f-87a28ce9c656",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {
+          "includeBinaries": true
+        }
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2704,
+        944
+      ],
+      "id": "e3666e0c-3263-40fe-89e0-b593ec03b304",
+      "name": "Aggregate2"
+    },
+    {
+      "parameters": {
+        "fromEmail": "automatizaciones@pktuno.com",
+        "toEmail": "bgalaviz@pktuno.com",
+        "subject": "Cotejo terminado pero falló PKTONE",
+        "emailFormat": "text",
+        "options": {
+          "attachments": "data, data_1, data_2"
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2864,
+        944
+      ],
+      "id": "dd1e82c6-f569-4a82-a3d1-7a97a9cba486",
+      "name": "Send email",
+      "webhookId": "b129f668-34fb-4728-934e-15f1574ba6d7",
+      "credentials": {
+        "smtp": {
+          "id": "fcHCvvfEJ22hetLE",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "command": "rm /files/entrada.rar && rm -rf /files/salida/*"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        3040,
+        944
+      ],
+      "id": "4b188c65-f7ce-4849-9d2c-4c9853a1a6c0",
+      "name": "Limpiar carpeta"
+    },
+    {
+      "parameters": {
+        "name": "Cotejo_Alianza",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "13NivrOFZ_NX1Is5Hd54mX6a7Bvk1zI9s",
+          "mode": "list",
+          "cachedResultName": "n8n_Files",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/13NivrOFZ_NX1Is5Hd54mX6a7Bvk1zI9s"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1504,
+        1088
+      ],
+      "id": "19a0c369-5251-4808-a492-a425115e930e",
+      "name": "Upload file",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "DLXSmFVg9xw9zmLp",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Cotejo Alianza",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1824,
+        1088
+      ],
+      "id": "5cf31265-340d-4eb7-8e61-7dcacef051ce",
+      "name": "Get row(s) in sheet2",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Cargamos y normalizamos la lista de referencia (Partiendo desde \"AD\")\nconst listaReferencia = $(\"Facturas_N\").all().map(i => {\n    const name = i.json.fileName.toString().trim().toUpperCase();\n    const posAD = name.indexOf(\"AD\");\n    // Si encuentra \"AD\", corta desde ahí; si no, deja el nombre original\n    return posAD !== -1 ? name.substring(posAD) : name;\n});\n\n// 2. Filtramos el Excel (Input actual)\nreturn $input.all().filter(item => {\n    const facturaExcel = item.json.FACTURA;\n    if (!facturaExcel) return false;\n\n    // Normalización inicial: quitar caracteres especiales y espacios\n    let valExcel = facturaExcel.toString().replace(/[^a-zA-Z0-9]/g, '').trim().toUpperCase();\n    \n    // Aplicamos la misma regla de limpieza: buscar el inicio en \"AD\"\n    const posADExcel = valExcel.indexOf(\"AD\");\n    const cleanExcel = posADExcel !== -1 ? valExcel.substring(posADExcel) : valExcel;\n\n    // Comprobación de coincidencia exacta sobre valores normalizados\n    // Ejemplo: 'AD104313' === 'AD104313'\n    return listaReferencia.some(idLista => idLista === cleanExcel);\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        912
+      ],
+      "id": "76af7f0e-d0a6-48c4-b50c-ee3c7abf63b3",
+      "name": "Filtrar facturas"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Cargamos y normalizamos la lista de referencia (Partiendo desde \"AD\")\nconst listaReferencia = $(\"Facturas_E\").all().map(i => {\n    const name = i.json.fileName.toString().trim().toUpperCase();\n    const posAD = name.indexOf(\"AD\");\n    // Si encuentra \"AD\", corta desde ahí; si no, deja el nombre original\n    return posAD !== -1 ? name.substring(posAD) : name;\n});\n\n// 2. Filtramos el Excel (Input actual)\nreturn $input.all().filter(item => {\n    const facturaExcel = item.json.FACTURA;\n    if (!facturaExcel) return false;\n\n    // Normalización inicial: quitar caracteres especiales y espacios\n    let valExcel = facturaExcel.toString().replace(/[^a-zA-Z0-9]/g, '').trim().toUpperCase();\n    \n    // Aplicamos la misma regla de limpieza: buscar el inicio en \"AD\"\n    const posADExcel = valExcel.indexOf(\"AD\");\n    const cleanExcel = posADExcel !== -1 ? valExcel.substring(posADExcel) : valExcel;\n\n    // Comprobación de coincidencia exacta sobre valores normalizados\n    // Ejemplo: 'AD104313' === 'AD104313'\n    return listaReferencia.some(idLista => idLista === cleanExcel);\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        1120
+      ],
+      "id": "b7afea22-4f4e-41bb-b351-95391aac6660",
+      "name": "Filtrar facturas1",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const seen = new Set();\nconst result = [];\n\n$input.all().forEach(item => {\n  const name = item.json.fileName;\n  if (!name) return;\n\n  // Extraer LMMADXXXXXX (limpieza)\n  const cleanName = name.split('_')[1].split('.')[0];\n\n  // Verificar duplicados\n  if (!seen.has(cleanName)) {\n    seen.add(cleanName);\n    result.push({\n      json: {\n        fileName: cleanName\n      }\n    });\n  }\n});\n\nreturn result;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1536,
+        896
+      ],
+      "id": "63d5d72c-7eb6-4ba6-b7a0-424e658fb63c",
+      "name": "Facturas_N"
+    },
+    {
+      "parameters": {
+        "jsCode": "const seen = new Set();\nconst result = [];\n\n$input.all().forEach(item => {\n  const name = item.json.fileName;\n  if (!name) return;\n\n  // Extraer LMMADXXXXXX (limpieza)\n  const cleanName = name.split('_')[1].split('.')[0];\n\n  // Verificar duplicados\n  if (!seen.has(cleanName)) {\n    seen.add(cleanName);\n    result.push({\n      json: {\n        fileName: cleanName\n      }\n    });\n  }\n});\n\nreturn result;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1536,
+        1104
+      ],
+      "id": "b045f9f0-dd82-4645-990f-bd195ce99219",
+      "name": "Facturas_E"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Obtención y limpieza de facturas N y E\nconst facturasN = $(\"Facturas_N\").all().map(i => i.json.fileName.toString().replace(/^LMM/, \"\").trim());\nconst facturasE = $(\"Facturas_E\").all().map(i => i.json.fileName.toString().replace(/^LMM/, \"\").trim());\n\nconst getTag = (inv) => {\n  if (inv === undefined || inv === null || inv === \"\") return \"\";\n  const s = inv.toString().trim();\n  if (facturasN.includes(s)) return \"N\";\n  if (facturasE.includes(s)) return \"E\";\n  return \"\";\n};\n\nconst itemsData = items.map(i => i.json);\n// Extraemos las llaves del JSON (que representan la Fila 1 del Excel original)\nconst keys = Object.keys(itemsData[0]).filter(k => k !== 'row_number');\n\n// RECONSTRUCCIÓN DINÁMICA DE LA FILA 1\nconst row1 = keys.map(k => k.startsWith('col_') ? \"\" : k);\nrow1.push(\"\"); // Espacio para Columna W (Tag)\n\n// MAPEO DE FILAS POR SU NÚMERO REAL PARA PRESERVAR ESPACIOS VACÍOS\nconst rowsMap = {};\nlet maxRow = 1;\nfor (const item of itemsData) {\n  // Capturamos el valor real: si es 0, dejamos 0. Si es nulo/undefined, dejamos \"\".\n  rowsMap[item.row_number] = keys.map(k => (item[k] === 0 || item[k]) ? item[k] : \"\");\n  if (item.row_number > maxRow) maxRow = item.row_number;\n}\n\nconst finalMatrix = [row1];\nlet tempBlock = [];\nlet currentTableType = 0; // 1: Detalle, 2: Resumen/Matriz\n\nfor (let i = 2; i <= maxRow; i++) {\n  const rowArr = rowsMap[i] || new Array(keys.length).fill(\"\");\n  const colA = (rowArr[0] !== undefined && rowArr[0] !== null) ? rowArr[0].toString().trim() : \"\";\n  \n  // Detección de encabezados\n  const isHeader1 = colA === \"Rastreo\";\n  const isHeader2 = colA === \"Factura\";\n  const isHeader3 = colA === \"Factura Alianza\";\n  \n  // Detección de Fila de Totales (Columna A vacía y hay montos en las columnas de suma)\n  const isTotalRow = (colA === \"\") && (rowArr[5] !== \"\" || rowArr[11] !== \"\" || rowArr[21] !== \"\");\n\n  if (isHeader1 || isHeader2 || isHeader3) {\n    if (tempBlock.length > 0) {\n      tempBlock.sort((a, b) => ({\"N\":1,\"E\":2,\"\":3}[a[22]] || 3) - ({\"N\":1,\"E\":2,\"\":3}[b[22]] || 3));\n      finalMatrix.push(...tempBlock);\n      tempBlock = [];\n    }\n    finalMatrix.push([...rowArr, \"\"]); // Encabezado sin tag\n    currentTableType = isHeader1 ? 1 : 2;\n    continue;\n  }\n\n  if (isTotalRow && currentTableType !== 0) {\n    if (tempBlock.length > 0) {\n      tempBlock.sort((a, b) => ({\"N\":1,\"E\":2,\"\":3}[a[22]] || 3) - ({\"N\":1,\"E\":2,\"\":3}[b[22]] || 3));\n      finalMatrix.push(...tempBlock);\n      tempBlock = [];\n    }\n    finalMatrix.push([...rowArr, \"\"]); // Fila de total sin tag\n    currentTableType = 0;\n    continue;\n  }\n\n  // Procesamiento de datos y asignación de Tags\n  if (currentTableType === 1) {\n    const tag = getTag(rowArr[16]); // Factura en Columna Q (índice 16)\n    tempBlock.push([...rowArr, tag]);\n  } else if (currentTableType === 2) {\n    const tag = getTag(rowArr[0]);  // Factura en Columna A (índice 0)\n    tempBlock.push([...rowArr, tag]);\n  } else {\n    // Filas fuera de tablas (espacios en blanco, metadatos)\n    finalMatrix.push([...rowArr, \"\"]);\n  }\n}\n\n// Vaciar último bloque si existe\nif (tempBlock.length > 0) {\n  tempBlock.sort((a, b) => ({\"N\":1,\"E\":2,\"\":3}[a[22]] || 3) - ({\"N\":1,\"E\":2,\"\":3}[b[22]] || 3));\n  finalMatrix.push(...tempBlock);\n}\n\n// Formateo final garantizando 23 columnas exactas\nconst matrix = finalMatrix.map(r => {\n  const clean = new Array(23).fill(\"\");\n  for(let j=0; j<23; j++) {\n    clean[j] = (r[j] === 0 || r[j]) ? r[j] : \"\";\n  }\n  return clean;\n});\n\nreturn {\n  values: matrix,\n  range: `'Cotejo Alianza'!A1:W${matrix.length}`\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1296,
+        1424
+      ],
+      "id": "08e9e2d6-d8a6-4034-bff0-081165144ad3",
+      "name": "Actualizar Tablas con \"E\" \"N\""
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $('Copiar Hoja').first().json.id }}/values/{{ encodeURIComponent($json.range) }}?valueInputOption=USER_ENTERED",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"values\": $json.values } }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1504,
+        1424
+      ],
+      "id": "223b07a7-b1e2-48ce-ba14-8c548e200e71",
+      "name": "HTTP Request1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://www.googleapis.com/drive/v3/files/{{ $json.id }}/copy",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"mimeType\": \"application/vnd.google-apps.spreadsheet\",\n  \"name\": \"Archivo_Cotejo_Editable\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1664,
+        1088
+      ],
+      "id": "59012408-e87c-4053-98b8-7d4f4ed63e02",
+      "name": "Copiar Hoja",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://www.googleapis.com/drive/v3/files/{{ $json.spreadsheetId }}/export",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "mimeType",
+              "value": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1744,
+        1424
+      ],
+      "id": "10961058-41bc-49c8-a11b-6692635a3088",
+      "name": "Descargar archivo1",
+      "retryOnFail": false,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch",
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2128,
+        1136
+      ],
+      "id": "b5a282ed-5cdd-4623-80bb-898668f999dd",
+      "name": "Merge11"
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch",
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2336,
+        896
+      ],
+      "id": "a44efc79-c157-4ff7-b293-93a6e376edaf",
+      "name": "Merge12"
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2512,
+        928
+      ],
+      "id": "7f32283f-9aac-485f-921c-c087228e1c7a",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2512,
+        1168
+      ],
+      "id": "dde07733-e1d2-416b-a064-b5e4b4efc147",
+      "name": "Merge4"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Obtener la fecha del nodo previo\nconst dateRaw = $('Filtrar facturas').first().json.FECHA_FACTURA;\nconst dateClean = dateRaw.split(' ')[0].replace(/\\//g, '-');\nconst finalFileName = `COTEJO ${dateClean}.xlsx`;\n\nfor (const item of $input.all()) {\n    if (!item.binary) continue; \n\n    const binaryKeys = Object.keys(item.binary);\n    if (binaryKeys.length === 0) continue; \n\n    // Tomamos la llave dinámica original (ej. 'data')\n    const originalDynamicKey = binaryKeys[0]; \n    const originalBinary = item.binary[originalDynamicKey];\n    \n    // 1. ELIMINAMOS la clave dinámica de entrada para evitar duplicidad.\n    delete item.binary[originalDynamicKey]; \n\n    // 2. Creamos la nueva clave ESTÁTICA ('data') y asignamos el nombre\n    // Se usa 'data' como estándar para que el nodo de Drive o Email lo reconozca siempre.\n    item.binary.data = originalBinary; \n    item.binary.data.fileName = finalFileName;\n\n    // 3. Opcional: Guardamos el nombre en el JSON para referencia\n    item.json.nombre_archivo = finalFileName;\n}\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2320,
+        1744
+      ],
+      "id": "3460771d-1e13-424a-b0b5-5dc0523e42eb",
+      "name": "Renombrar Archivo"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Obtener la fecha del \nconst finalFileName = `COTEJO ALIANZA.xlsx`;\n\nfor (const item of $input.all()) {\n    if (!item.binary) continue; \n\n    const binaryKeys = Object.keys(item.binary);\n    if (binaryKeys.length === 0) continue; \n\n    // Tomamos la llave dinámica original (ej. 'data')\n    const originalDynamicKey = binaryKeys[0]; \n    const originalBinary = item.binary[originalDynamicKey];\n    \n    // 1. ELIMINAMOS la clave dinámica de entrada para evitar duplicidad.\n    delete item.binary[originalDynamicKey]; \n\n    // 2. Creamos la nueva clave ESTÁTICA ('data') y asignamos el nombre\n    // Se usa 'data' como estándar para que el nodo de Drive o Email lo reconozca siempre.\n    item.binary.data = originalBinary; \n    item.binary.data.fileName = finalFileName;\n\n    // 3. Opcional: Guardamos el nombre en el JSON para referencia\n    item.json.nombre_archivo = finalFileName;\n}\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1936,
+        1424
+      ],
+      "id": "346ad52e-d9af-4f69-90ae-c96c260c3ea3",
+      "name": "Renombrar Archivo1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const CREATION_NODE = \"crear spreadsheet\"; \nconst DATA_NODE = \"CUL\"; \nconst ADD_SHEET_NODE = \"HTTP_Agregar_Hoja\"; \n\nconst output = [];\n\ntry {\n    const spreadsheetId = $items(CREATION_NODE)[0].json.spreadsheetId;\n    const sheetId = $items(ADD_SHEET_NODE)[0].json.replies[0].addSheet.properties.sheetId; \n\n    const datosFinales = $items(DATA_NODE);\n\n    // 1. DEFINICIÓN DE COLORES\n    const colorHeader = { red: 0, green: 0.125, blue: 0.375 }; \n    const colorRosaPastel = { red: 0.988, green: 0.894, blue: 0.839 }; \n    const colorAzulMedio = { red: 0.204, green: 0.596, blue: 0.859 }; // Azul Medio solicitado\n    const colorErrorRojo = { red: 0.973, green: 0.412, blue: 0.420 }; \n    const colorNegro = { red: 0, green: 0, blue: 0 }; \n    const colorBlanco = { red: 1, green: 1, blue: 1 };\n\n    const requests = [];\n\n    // 2. FORMATO DE ENCABEZADOS (Fila 0)\n    requests.push({\n        repeat_cell: {\n            range: { sheetId: sheetId, startRowIndex: 0, endRowIndex: 1 },\n            cell: {\n                userEnteredFormat: {\n                    backgroundColor: colorHeader,\n                    textFormat: { bold: true, foregroundColor: colorBlanco },\n                    horizontalAlignment: 'CENTER'\n                }\n            },\n            fields: \"userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)\"\n        }\n    });\n\n    [8, 18, 19].forEach(colIndex => {\n        requests.push({\n            update_cells: {\n                rows: [{ values: [{ userEnteredFormat: {\n                    backgroundColor: colorRosaPastel,\n                    textFormat: { bold: true, foregroundColor: colorHeader },\n                    horizontalAlignment: 'CENTER'\n                } }] }],\n                range: { sheetId: sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: colIndex, endColumnIndex: colIndex + 1 },\n                fields: \"userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)\"\n            }\n        });\n    });\n\n    // 3. PROCESAMIENTO DE DATOS\n    datosFinales.forEach((item, index) => {\n        const rowIndex = index + 2; \n        const clave = (item.json['Serie-Folio Clave'] || '').toString().trim();\n\n        if (clave === \"\") return;\n\n        // SEPARADORES NEGROS\n        if (clave.startsWith('CFDI')) {\n            requests.push({\n                repeat_cell: {\n                    range: { sheetId: sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1 },\n                    cell: { \n                        userEnteredFormat: { \n                            backgroundColor: colorNegro,\n                            textFormat: { foregroundColor: colorBlanco, bold: true }\n                        } \n                    },\n                    fields: \"userEnteredFormat(backgroundColor,textFormat)\"\n                }\n            });\n            return;\n        }\n\n        const nombreCuenta = (item.json['Nombre Cuenta'] || '').trim();\n        const diffA = Math.abs(item.json['DIFERENCIA vs ABONO CONTPAQI'] || 0);\n        const diffB = Math.abs(item.json['DIFERENCIA vs SUBTOTAL SAT'] || 0);\n        const diffC = Math.abs(item.json['DIFERENCIA IVA'] || 0);\n        const tieneError = (diffA > 0.01 || diffB > 0.01 || diffC > 0.01);\n\n        // REGLA MODIFICADA: Embalaje (Pintar fila actual y anterior en Azul Medio)\n        if (nombreCuenta === \"Embalaje\") {\n            requests.push({\n                repeat_cell: {\n                    range: { \n                        sheetId: sheetId, \n                        startRowIndex: rowIndex - 1, // Fila anterior\n                        endRowIndex: rowIndex + 1    // Fila actual (el final es exclusivo)\n                    },\n                    cell: { userEnteredFormat: { backgroundColor: colorAzulMedio } },\n                    fields: \"userEnteredFormat(backgroundColor)\"\n                }\n            });\n        } \n        else if (tieneError) {\n            requests.push({\n                repeat_cell: {\n                    range: { sheetId: sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1 },\n                    cell: { userEnteredFormat: { backgroundColor: colorErrorRojo } },\n                    fields: \"userEnteredFormat(backgroundColor)\"\n                }\n            });\n        } \n        else {\n            [8, 18, 19].forEach(colIdx => {\n                requests.push({\n                    update_cells: {\n                        rows: [{ values: [{ userEnteredFormat: { backgroundColor: colorRosaPastel } }] }],\n                        range: { sheetId: sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: colIdx, endColumnIndex: colIdx + 1 },\n                        fields: \"userEnteredFormat(backgroundColor)\"\n                    }\n                });\n            });\n        }\n    });\n\n    // 4. AUTO-AJUSTE\n    requests.push({\n        auto_resize_dimensions: {\n            dimensions: { sheetId: sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 26 }\n        }\n    });\n\n    output.push({\n        json: {\n            spreadsheet_id: spreadsheetId,\n            json_formato_raw: JSON.stringify({ requests })\n        }\n    });\n\n} catch (error) {\n    output.push({ json: { error: `ERROR EN DISEÑO CUL: ${error.message}` } });\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1456,
+        672
+      ],
+      "id": "164fbb34-ed93-4a4f-8c95-785bcbd1ace9",
+      "name": "crear diseño1",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $json.spreadsheet_id }}:batchUpdate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.json_formato_raw }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1632,
+        672
+      ],
+      "id": "db8d5e8a-53f5-4cfb-9d67-7b73da760655",
+      "name": "Aplicar diseño1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nif (items.length === 0) return [];\n\nconst columnNames = [\"GUIA\", \"RASTREO\", \"FACTURA\", \"FECHA_FACTURA\", \"ARGUMENTO\", \"MANIFIESTO\", \"DESTINO\", \"FECHA_ENVIO\", \"FECHA_ENTREGA\", \"REFERENCIA\", \"CTE_ORIGEN\", \"NOM_ORIGEN\", \"CTE_DESTINO\", \"NOM_DESTINO\", \"ESTADO\", \"CODIGO_POSTAL\", \"LOCALIDAD\", \"COLONIA\", \"CALLE\", \"NUMERO\", \"IMPORTE_GUIA\", \"MODO_PAGO\", \"TIPO_PAGO\", \"TIPO_ENTREGA\", \"STATUS\", \"CANTIDAD\", \"PESO\", \"VOLUMEN\", \"TARIFA\", \"CONTENIDO\", \"DESCRIPCION\", \"FLETE\", \"RAD\", \"EAD\", \"SEGURO\", \"ACUSE\", \"COD\", \"OTROS\", \"DESCUENTO\", \"SUBTOTAL\", \"IVA\", \"IVA_RET\", \"TOTAL\", \"OBSERVACIONES\", \"PERSONA_RECIBE\", \"IMPTE_ANTES_DE_DESCTO\", \"  \", \"FLETE \", \"RAD \", \"EAD \", \"OTROS_SERVICIOS\", \"SEGURO \", \"TOTAL \", \"ES\", \"FLETE_ALIANZA\"];\n\n// Columnas que no deben ser números para evitar notación científica\nconst forceText = [\"RASTREO\", \"GUIA\", \"ARGUMENTO\", \"MANIFIESTO\", \"REFERENCIA\", \"CODIGO_POSTAL\"];\n\nconst values = [columnNames]; // Fila 0: Encabezados\n\nfor (const item of items) {\n    const rowData = item.json;\n    const row = columnNames.map(col => {\n        let val = rowData[col];\n        \n        // Limpieza de factura\n        if (col === \"FACTURA\" && typeof val === \"string\") {\n            const posAD = val.toUpperCase().indexOf(\"AD\");\n            if (posAD !== -1) val = val.substring(posAD);\n        }\n        \n        if (val === null || val === undefined || String(val).trim() === \"\") return 0;\n\n        // Si es una columna de ID largo, forzamos texto con comilla simple\n        if (forceText.includes(col)) return `'${String(val).trim()}`;\n        \n        return val;\n    });\n    values.push(row);\n}\n\nreturn [{ json: { values } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -384,
+        880
+      ],
+      "id": "b78604eb-b2e3-4eb6-8b34-c03bc0185482",
+      "name": "Preparar Datos Planos",
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nif (items.length === 0) return [];\n\nconst spreadsheetId = $(\"crear spreadsheet\").first().json.spreadsheetId;\nconst sheetId = $(\"crear spreadsheet\").first().json.sheets[0].properties.sheetId;\n\nconst columnNames = [\n    \"GUIA\", \"RASTREO\", \"FACTURA\", \"FECHA_FACTURA\", \"ARGUMENTO\", \"MANIFIESTO\", \"DESTINO\", \"FECHA_ENVIO\", \n    \"FECHA_ENTREGA\", \"REFERENCIA\", \"CTE_ORIGEN\", \"NOM_ORIGEN\", \"CTE_DESTINO\", \"NOM_DESTINO\", \"ESTADO\", \n    \"CODIGO_POSTAL\", \"LOCALIDAD\", \"COLONIA\", \"CALLE\", \"NUMERO\", \"IMPORTE_GUIA\", \"MODO_PAGO\", \"TIPO_PAGO\", \n    \"TIPO_ENTREGA\", \"STATUS\", \"CANTIDAD\", \"PESO\", \"VOLUMEN\", \"TARIFA\", \"CONTENIDO\", \"DESCRIPCION\", \n    \"FLETE\", \"RAD\", \"EAD\", \"SEGURO\", \"ACUSE\", \"COD\", \"OTROS\", \"DESCUENTO\", \"SUBTOTAL\", \"IVA\", \"IVA_RET\", \n    \"TOTAL\", \"OBSERVACIONES\", \"PERSONA_RECIBE\", \"IMPTE_ANTES_DE_DESCTO\", \"  \", \"FLETE \", \"RAD \", \n    \"EAD \", \"OTROS_SERVICIOS\", \"SEGURO \", \"TOTAL \", \"ES\", \"FLETE_ALIANZA\"\n];\n\nconst greenColor = { red: 0.572, green: 0.815, blue: 0.313 }; \nconst yellowColor = { red: 1.0, green: 0.902, blue: 0.6 };    \nconst softGrid = { red: 0.85, green: 0.85, blue: 0.85 };      \n\nconst moneyColumns = [\n    \"IMPORTE_GUIA\", \"FLETE\", \"RAD\", \"EAD\", \"SEGURO\", \"ACUSE\", \"COD\", \"OTROS\", \n    \"DESCUENTO\", \"SUBTOTAL\", \"IVA\", \"IVA_RET\", \"TOTAL\", \"IMPTE_ANTES_DE_DESCTO\",\n    \"FLETE \", \"RAD \", \"EAD \", \"OTROS_SERVICIOS\", \"SEGURO \", \"TOTAL \", \"FLETE_ALIANZA\"\n];\n\nconst greenColumns = [\"RASTREO\", \"FACTURA\", \"PESO\", \"IMPTE_ANTES_DE_DESCTO\", \"FLETE_ALIANZA\"];\nconst forceTextColumns = [\"RASTREO\", \"GUIA\", \"ARGUMENTO\", \"MANIFIESTO\", \"REFERENCIA\", \"CODIGO_POSTAL\"];\n\nconst headerRow = {\n  values: columnNames.map(() => ({\n    userEnteredFormat: {\n      backgroundColor: { red: 0.7, green: 0.7, blue: 0.7 },\n      textFormat: { bold: true, fontSize: 11, fontFamily: \"Arial\" },\n      horizontalAlignment: \"LEFT\",\n      borders: { top: { style: \"SOLID\", color: softGrid }, bottom: { style: \"SOLID\", color: softGrid }, left: { style: \"SOLID\", color: softGrid }, right: { style: \"SOLID\", color: softGrid } }\n    }\n  }))\n};\n\nconst dataRows = items.map((item) => {\n  const rowData = item.json;\n  const isTotalRow = String(rowData[\"FACTURA\"] || \"\").toUpperCase() === \"TOTALES\";\n  \n  return {\n    values: columnNames.map((colName) => {\n      let rawValue = rowData[colName];\n      const strVal = String(rawValue || \"0\").trim();\n      const numericValue = parseFloat(strVal.replace(/[$,]/g, ''));\n      const isDateColumn = colName.includes(\"FECHA\");\n      \n      const isNumeric = !isNaN(numericValue) && !isDateColumn && !forceTextColumns.includes(colName);\n      const isMoney = isNumeric && moneyColumns.includes(colName);\n\n      const format = {\n        textFormat: {\n          foregroundColor: { red: 0, green: 0, blue: 0 },\n          bold: isTotalRow,\n          fontSize: 10,\n          fontFamily: \"Arial\"\n        },\n        backgroundColor: (greenColumns.includes(colName) && !isTotalRow) ? greenColor : \n                         (colName === \"SUBTOTAL\" && !isTotalRow) ? yellowColor :\n                         isTotalRow ? { red: 0.9, green: 0.9, blue: 1.0 } : { red: 1, green: 1, blue: 1 },\n        horizontalAlignment: isNumeric ? \"RIGHT\" : \"LEFT\",\n        verticalAlignment: \"MIDDLE\",\n        wrapStrategy: \"CLIP\",\n        borders: { top: { style: \"SOLID\", color: softGrid }, bottom: { style: \"SOLID\", color: softGrid }, left: { style: \"SOLID\", color: softGrid }, right: { style: \"SOLID\", color: softGrid } }\n      };\n\n      if (forceTextColumns.includes(colName)) {\n        format.numberFormat = { type: \"TEXT\" };\n      } else if (isMoney && !isTotalRow) {\n        format.numberFormat = { type: \"CURRENCY\", pattern: \"$#,##0.00\" };\n      }\n\n      return { userEnteredFormat: format };\n    })\n  };\n});\n\nreturn [{\n    json: {\n        spreadsheet_id: spreadsheetId,\n        json_formato_raw: JSON.stringify({\n            requests: [\n                {\n                    updateCells: {\n                        rows: [headerRow, ...dataRows],\n                        fields: \"userEnteredFormat\",\n                        start: { sheetId: sheetId, rowIndex: 0, columnIndex: 0 }\n                    }\n                }\n            ]\n        })\n    }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -112,
+        960
+      ],
+      "id": "94b97054-70c0-4a6c-bb12-dd99ecf8b7af",
+      "name": "Preparar Formato",
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $json.spreadsheetId }}/values/Integracion!A1?valueInputOption=USER_ENTERED",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"values\": {{ JSON.stringify($node[\"Preparar Datos Planos\"].json.values) }}\n}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -32,
+        784
+      ],
+      "id": "f9ba87de-1742-4ef8-88de-d50eb2936f4b",
+      "name": "Subir Datos Planos",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        160,
+        864
+      ],
+      "id": "3e041b3b-c5fb-4245-9e0e-63915df9b83d",
+      "name": "Merge9"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $node[\"crear spreadsheet\"].json.spreadsheetId }}:batchUpdate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $node[\"Preparar Formato\"].json.json_formato_raw }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        352,
+        864
+      ],
+      "id": "302086ff-2fdc-4535-ba5a-d4e7caf0b592",
+      "name": "Aplicar Diseño",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nif (items.length === 0) return [];\n\nconst columnNames = [\"RASTREO\", \"PESO\", \"TOTAL\", \"FACTURA\", \"SUBTOTAL\", \"FECHA_FACTURA\", \"FLETE\"];\nconst forceText = [\"RASTREO\"];\n\nconst values = [columnNames]; // Fila 0: Encabezados\n\nfor (const item of items) {\n    const rowData = item.json;\n    const row = columnNames.map(col => {\n        let val = rowData[col];\n        \n        // Limpieza de factura\n        if (col === \"FACTURA\" && typeof val === \"string\") {\n            const posAD = val.toUpperCase().indexOf(\"AD\");\n            if (posAD !== -1) val = val.substring(posAD);\n        }\n        \n        if (val === null || val === undefined || String(val).trim() === \"\") return 0;\n\n        // Protección contra notación científica en Excel/Sheets\n        if (forceText.includes(col)) return `'${String(val).trim()}`;\n        \n        return val;\n    });\n    values.push(row);\n}\n\nreturn [{ json: { values } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -144,
+        1104
+      ],
+      "id": "4f774df0-8b7f-4ec9-9beb-17e0a3b9be5e",
+      "name": "Preparar Datos Planos2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nif (items.length === 0) return [];\n\n// Obtención del spreadsheetId del archivo original\nconst spreadsheetId = $(\"crear spreadsheet\").first().json.spreadsheetId;\n\n// Obtención del sheetId directamente de la respuesta que creó la hoja\nconst sheetData = $(\"Agregar Concentrado\").first().json;\nif (!sheetData.replies || !sheetData.replies[0] || !sheetData.replies[0].addSheet) {\n    throw new Error(\"El nodo referenciado no contiene la respuesta de creación de hoja. Verifique el nombre del nodo y asegúrese de que se haya ejecutado con éxito.\");\n}\nconst sheetId = sheetData.replies[0].addSheet.properties.sheetId;\n\n// Definición de columnas y diseño\nconst columnNames = [\"RASTREO\", \"PESO\", \"TOTAL\", \"FACTURA\", \"SUBTOTAL\", \"FECHA_FACTURA\", \"FLETE\"];\nconst greenColor = { red: 0.572, green: 0.815, blue: 0.313 }; \nconst softGrid = { red: 0.85, green: 0.85, blue: 0.85 };      \nconst moneyColumns = [\"TOTAL\", \"SUBTOTAL\"];\n\n// Generación de fila de encabezados (Fila 0)\nconst headerRow = {\n  values: columnNames.map(() => ({\n    userEnteredFormat: {\n      backgroundColor: { red: 0.7, green: 0.7, blue: 0.7 },\n      textFormat: { bold: true, fontSize: 11, fontFamily: \"Arial\" },\n      horizontalAlignment: \"LEFT\",\n      borders: { top: { style: \"SOLID\", color: softGrid }, bottom: { style: \"SOLID\", color: softGrid }, left: { style: \"SOLID\", color: softGrid }, right: { style: \"SOLID\", color: softGrid } }\n    }\n  }))\n};\n\n// Generación de filas de datos\nconst dataRows = items.map((item) => {\n  const rowData = item.json;\n  \n  return {\n    values: columnNames.map((colName) => {\n      const rawValue = rowData[colName];\n      const strVal = String(rawValue || \"0\").trim();\n      const numericValue = parseFloat(strVal.replace(/[$,]/g, ''));\n      \n      const isDateColumn = colName.includes(\"FECHA\");\n      const isRastreo = colName === \"RASTREO\";\n      const isNumeric = !isNaN(numericValue) && !isDateColumn && !isRastreo;\n      const isMoney = isNumeric && moneyColumns.includes(colName);\n\n      const format = {\n        textFormat: { foregroundColor: { red: 0, green: 0, blue: 0 }, bold: false, fontSize: 10, fontFamily: \"Arial\" },\n        backgroundColor: greenColor,\n        horizontalAlignment: isNumeric ? \"RIGHT\" : \"LEFT\",\n        wrapStrategy: \"CLIP\",\n        borders: { top: { style: \"SOLID\", color: softGrid }, bottom: { style: \"SOLID\", color: softGrid }, left: { style: \"SOLID\", color: softGrid }, right: { style: \"SOLID\", color: softGrid } }\n      };\n\n      // CORRECCIÓN: Asignación explícita de formatos incluyendo fechas\n      if (isRastreo) {\n        format.numberFormat = { type: \"TEXT\" };\n      } else if (isMoney) {\n        format.numberFormat = { type: \"CURRENCY\", pattern: \"$#,##0.00\" };\n      } else if (isDateColumn) {\n        format.numberFormat = { type: \"DATE\", pattern: \"yyyy-mm-dd\" };\n      }\n\n      return { userEnteredFormat: format };\n    })\n  };\n});\n\n// Salida consolidada\nreturn [{\n    json: {\n        spreadsheet_id: spreadsheetId,\n        json_formato_raw: JSON.stringify({\n            requests: [\n                {\n                    updateCells: {\n                        rows: [headerRow, ...dataRows],\n                        fields: \"userEnteredFormat\",\n                        start: { sheetId: sheetId, rowIndex: 0, columnIndex: 0 }\n                    }\n                }\n            ]\n        })\n    }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        1312
+      ],
+      "id": "f141b56c-6b54-445c-b305-65a087c30748",
+      "name": "Preparar Formato2"
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch"
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        416,
+        1296
+      ],
+      "id": "08c3efb5-d558-4960-b4a0-1c99d912959d",
+      "name": "Merge10"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $json.spreadsheetId }}/values/Concentrado!A1?valueInputOption=USER_ENTERED",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"values\": {{ JSON.stringify($node[\"Preparar Datos Planos2\"].json.values) }}\n}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        432,
+        1088
+      ],
+      "id": "0b55feca-eb36-4a58-b619-8f14133be15d",
+      "name": "Subir Datos Planos2",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $node[\"crear spreadsheet\"].json.spreadsheetId }}:batchUpdate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $node[\"Preparar Formato2\"].json.json_formato_raw }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        1200
+      ],
+      "id": "63501a60-b5cf-4c4c-bb12-9d2adcd99918",
+      "name": "Aplicar Diseño2",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $json.spreadsheetId }}:batchUpdate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"requests\": [\n    {\n      \"addSheet\": {\n        \"properties\": {\n          \"title\": \"Concentrado\"\n        }\n      }\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        256,
+        1088
+      ],
+      "id": "ee3401d2-4137-497b-ad96-5352ed123b62",
+      "name": "Agregar Concentrado",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const outputOrder = [\n    'FACTURA',\n    'FLETE', 'RAD', 'EAD', 'SEGURO', 'ACUSE', 'COD', 'OTROS',\n    'DESCUENTO', 'SUBTOTAL', 'IVA', 'IVA_RET', 'TOTAL',\n    'abono', \n    'RESULTADO'\n];\n\nconst numericFields = [\n    'TOTAL', 'SUBTOTAL', 'FLETE', 'RAD', 'EAD', 'SEGURO',\n    'ACUSE', 'COD', 'OTROS', 'DESCUENTO', 'IVA', 'IVA_RET', 'abono'\n];\n\n// Función de parseo robusto para asegurar cálculos correctos\nconst parseValue = (value) => {\n    if (value === null || value === undefined) return 0;\n    // Convierte comas a puntos y elimina símbolos de moneda\n    const cleanedString = String(value).replace(/[$,€]/g, '').replace(/,/g, '.').trim();\n    return parseFloat(cleanedString) || 0; \n};\n\n// Usaremos un Map para almacenar solo la fila final por FACTURA\nconst consolidatedData = new Map();\n\n// =================================================================\n// FASE 1: AGRUPACIÓN Y SELECCIÓN DEL REGISTRO FINAL\n// =================================================================\nfor (const item of items) {\n    const data = item.json;\n    // La llave de agrupación es la factura limpia\n    const facturaKey = data.Cleaned_Factura || data.FACTURA;\n    \n    // 1. Calcular el saldo pendiente (RESULTADO) de esta fila\n    const totalValue = parseValue(data.TOTAL);\n    const abonoValue = parseValue(data.abono); \n    const currentDifference = totalValue - abonoValue; \n\n    // 2. Determinar si esta es la fila a conservar\n    if (!consolidatedData.has(facturaKey)) {\n        // Es la primera vez que se ve la factura: la guardamos.\n        consolidatedData.set(facturaKey, { \n            row: data, \n            difference: currentDifference // Guardamos el saldo para comparaciones futuras\n        });\n    } else {\n        // Ya existe la factura: comparamos los saldos.\n        const existingEntry = consolidatedData.get(facturaKey);\n        \n        // **Lógica clave:** Si el saldo actual es MENOR que el saldo guardado,\n        // significa que hemos encontrado la línea con el abono aplicado.\n        // Esto elimina la duplicidad y mantiene el registro correcto.\n        if (currentDifference < existingEntry.difference) {\n            consolidatedData.set(facturaKey, { \n                row: data, \n                difference: currentDifference \n            });\n        }\n    }\n}\n\n// =================================================================\n// FASE 2: CÁLCULO Y FORMATO FINAL\n// =================================================================\nconst result = [];\n\n// Iteramos sobre las entradas seleccionadas (una sola fila por factura)\nfor (const entry of consolidatedData.values()) {\n    const data = entry.row; // La fila con el saldo más bajo (abono aplicado)\n    const finalRow = {};\n\n    // Recalculamos el RESULTADO\n    const totalValue = parseValue(data.TOTAL);\n    const abonoValue = parseValue(data.abono);\n    const difference = totalValue - abonoValue;\n\n    // 1. Formatear la fila final según outputOrder\n    for (const column of outputOrder) {\n        let value = data[column];\n\n        // Rellenar la columna FACTURA con el valor limpio\n        if (column === 'FACTURA') {\n            value = data.Cleaned_Factura || data.FACTURA;\n        }\n        \n        // Asignar el RESULTADO calculado\n        if (column === 'RESULTADO') {\n            value = difference;\n        }\n        \n        // Formatear valores numéricos a dos decimales\n        if (numericFields.includes(column) || column === 'RESULTADO') {\n            const numValue = parseValue(value);\n            finalRow[column] = numValue.toFixed(2);\n        } else {\n            // Pasa la columna de texto como string\n            finalRow[column] = String(value || '');\n        }\n    }\n    \n    // 2. Agregar la fila ÚNICA al resultado\n    result.push({ json: finalRow });\n}\n\nreturn result;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -16,
+        1440
+      ],
+      "id": "50c76a2a-e615-4f87-95ba-996d3972ae72",
+      "name": "resultado final2"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        608,
+        1424
+      ],
+      "id": "a5207139-37f7-4313-b566-a61f2f12a27a",
+      "name": "Merge25"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nif (items.length === 0) return [];\n\nconst columnNames = [\n    'FACTURA', 'FLETE', 'RAD', 'EAD', 'SEGURO', 'ACUSE', 'COD', 'OTROS',\n    'DESCUENTO', 'SUBTOTAL', 'IVA', 'IVA_RET', 'TOTAL', 'abono', 'RESULTADO'\n];\nconst forceText = [\"FACTURA\"];\n\nconst values = [columnNames]; // Fila 0: Encabezados\n\nfor (const item of items) {\n    const rowData = item.json;\n    const row = columnNames.map(col => {\n        let val = rowData[col];\n        \n        if (val === null || val === undefined || String(val).trim() === \"\") return 0;\n        \n        // Protección contra notación científica en Excel/Sheets\n        if (forceText.includes(col)) return `'${String(val).trim()}`;\n        \n        return val;\n    });\n    values.push(row);\n}\n\nreturn [{ json: { values } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        1440
+      ],
+      "id": "51ba8ae1-fc98-4ab2-b372-e3c8eb8d3618",
+      "name": "Preparar Datos Planos3"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nif (items.length === 0) return [];\n\n// 1. OBTENCIÓN DE IDs\nconst spreadsheetId = $(\"crear spreadsheet\").first().json.spreadsheetId;\n\nconst sheetData = $(\"Agregar Diferencias\").first().json;\nif (!sheetData.replies || !sheetData.replies[0] || !sheetData.replies[0].addSheet) {\n    throw new Error(\"El nodo referenciado no contiene la respuesta de creación de hoja. Verifique su ejecución.\");\n}\nconst sheetId = sheetData.replies[0].addSheet.properties.sheetId;\n\n// 2. CONFIGURACIÓN DE DISEÑO\nconst columnNames = [\n    'FACTURA', 'FLETE', 'RAD', 'EAD', 'SEGURO', 'ACUSE', 'COD', 'OTROS',\n    'DESCUENTO', 'SUBTOTAL', 'IVA', 'IVA_RET', 'TOTAL', 'abono', 'RESULTADO'\n];\n\nconst redText = { red: 0.8, green: 0, blue: 0 };\nconst softGrid = { red: 0.85, green: 0.85, blue: 0.85 };\n\n// 3. GENERACIÓN DE FILA DE ENCABEZADOS (Fila 0)\nconst headerRow = {\n  values: columnNames.map(() => ({\n    userEnteredFormat: {\n      backgroundColor: { red: 0.7, green: 0.7, blue: 0.7 },\n      textFormat: { bold: true, fontSize: 11, fontFamily: \"Arial\" },\n      horizontalAlignment: \"LEFT\",\n      borders: { top: { style: \"SOLID\", color: softGrid }, bottom: { style: \"SOLID\", color: softGrid }, left: { style: \"SOLID\", color: softGrid }, right: { style: \"SOLID\", color: softGrid } }\n    }\n  }))\n};\n\n// 4. GENERACIÓN DE FILAS DE DATOS\nconst dataRows = items.map((item) => {\n  const rowData = item.json;\n  \n  return {\n    values: columnNames.map((colName) => {\n      const rawValue = rowData[colName];\n      const strVal = String(rawValue || \"0\").trim();\n      const numericValue = parseFloat(strVal.replace(/[$,]/g, ''));\n      \n      const isFactura = colName === \"FACTURA\";\n      const isNumeric = !isNaN(numericValue) && !isFactura;\n      const isNegative = isNumeric && numericValue < 0;\n\n      const format = {\n        textFormat: { \n            foregroundColor: isNegative ? redText : { red: 0, green: 0, blue: 0 }, \n            bold: false, \n            fontSize: 10, \n            fontFamily: \"Arial\" \n        },\n        backgroundColor: { red: 1, green: 1, blue: 1 },\n        horizontalAlignment: isNumeric ? \"RIGHT\" : \"LEFT\",\n        wrapStrategy: \"CLIP\",\n        borders: { top: { style: \"SOLID\", color: softGrid }, bottom: { style: \"SOLID\", color: softGrid }, left: { style: \"SOLID\", color: softGrid }, right: { style: \"SOLID\", color: softGrid } }\n      };\n\n      if (isFactura) {\n        format.numberFormat = { type: \"TEXT\" };\n      } else if (isNumeric) {\n        format.numberFormat = { type: \"CURRENCY\", pattern: \"$#,##0.00\" };\n      }\n\n      return { userEnteredFormat: format };\n    })\n  };\n});\n\n// 5. SALIDA CONSOLIDADA\nreturn [{\n    json: {\n        spreadsheet_id: spreadsheetId,\n        json_formato_raw: JSON.stringify({\n            requests: [\n                {\n                    updateCells: {\n                        rows: [headerRow, ...dataRows],\n                        fields: \"userEnteredFormat\",\n                        start: { sheetId: sheetId, rowIndex: 0, columnIndex: 0 }\n                    }\n                }\n            ]\n        })\n    }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        1648
+      ],
+      "id": "7e8c170f-3fbe-4699-95cf-744f7055c943",
+      "name": "Preparar Formato3"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $json.spreadsheetId }}:batchUpdate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"requests\": [\n    {\n      \"addSheet\": {\n        \"properties\": {\n          \"title\": \"Diferencias\"\n        }\n      }\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        784,
+        1424
+      ],
+      "id": "09c316a4-e025-4472-a47c-65cca24b94b2",
+      "name": "Agregar Diferencias",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $json.spreadsheetId }}/values/Diferencias!A1?valueInputOption=USER_ENTERED",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"values\": {{ JSON.stringify($node[\"Preparar Datos Planos3\"].json.values) }}\n}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        1424
+      ],
+      "id": "10f65c14-c39a-4b46-b516-585a86b15419",
+      "name": "Subir Datos Planos3",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        544,
+        1632
+      ],
+      "id": "3c438e6b-b514-45c6-8ce4-a18b0ab7ddca",
+      "name": "Merge7"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $node[\"crear spreadsheet\"].json.spreadsheetId }}:batchUpdate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $node[\"Preparar Formato3\"].json.json_formato_raw }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        832,
+        1632
+      ],
+      "id": "e8f9b35d-5bdd-472f-a6b8-e4d9dfd340fd",
+      "name": "Aplicar Diseño3",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nreturn items.filter(item => {\n    const json = item.json;\n    \n    // Se exige la existencia de los campos básicos. Si es nulo, indefinido o vacío, se elimina.\n    return json.GUIA && json.FACTURA;\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -592,
+        1008
+      ],
+      "id": "8a7b637c-da0e-4daf-b56c-98764a223b6c",
+      "name": "Eliminar Items vacíos"
+    },
+    {
+      "parameters": {
+        "url": "=https://docs.google.com/spreadsheets/d/{{ $json.spreadsheetId }}/export?format=xlsx&gid={{ $('Agregar Concentrado').item.json.replies[0].addSheet.properties.sheetId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        912,
+        1088
+      ],
+      "id": "30b0b3ab-c7f3-4fac-a182-59a8eadefcf2",
+      "name": "Descargar concentrado",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "iGP43BDWaDZL3gPb",
+          "name": "Google Sheets account 2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "extraer columnas cotejo",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge3",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Variables de fechas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jalar datos de compac": {
+      "main": [
+        [
+          {
+            "node": "Limpiar la referencia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pasar solo el excel": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limpiar la referencia": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Crear diseño3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Variables de fechas": {
+      "main": [
+        [
+          {
+            "node": "Jalar datos de compac",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge2": {
+      "main": [
+        [
+          {
+            "node": "resultado final2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "extraer columnas cotejo": {
+      "main": [
+        [
+          {
+            "node": "sumar facturas iguales",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "sumar facturas iguales": {
+      "main": [
+        [
+          {
+            "node": "Limpiar la referencia1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limpiar la referencia1": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Trigger (IMAP)1": {
+      "main": [
+        [
+          {
+            "node": "Filtrar .rar",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Pasar solo el excel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MONTO MAYOR": {
+      "main": [
+        [
+          {
+            "node": "Compression",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ECOMMERCE MAYOR": {
+      "main": [
+        [
+          {
+            "node": "Compression1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar xml1": {
+      "main": [
+        [
+          {
+            "node": "Facturas_N",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar xml2": {
+      "main": [
+        [
+          {
+            "node": "Facturas_E",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compression": {
+      "main": [
+        [
+          {
+            "node": "Filtrar xml1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compression1": {
+      "main": [
+        [
+          {
+            "node": "Filtrar xml2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar winrar": {
+      "main": [
+        [
+          {
+            "node": "Descomprimir winrar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Descomprimir winrar": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read/Write Files from Disk": {
+      "main": [
+        [
+          {
+            "node": "MONTO MAYOR",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "ECOMMERCE MAYOR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar .rar": {
+      "main": [
+        [
+          {
+            "node": "Guardar winrar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Filtrar facturas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge3": {
+      "main": [
+        [
+          {
+            "node": "Filtrar facturas1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agregar Columnas1": {
+      "main": [
+        [
+          {
+            "node": "Merge5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agregar Columnas": {
+      "main": [
+        [
+          {
+            "node": "Merge5",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge5": {
+      "main": [
+        [
+          {
+            "node": "Eliminar Items vacíos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "crear spreadsheet": {
+      "main": [
+        [
+          {
+            "node": "Subir Datos Planos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge6": {
+      "main": [
+        [
+          {
+            "node": "Agregar Concentrado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer columnas del concentrado": {
+      "main": [
+        [
+          {
+            "node": "Preparar Datos Planos2",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Preparar Formato2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crear diseño3": {
+      "main": [
+        [
+          {
+            "node": "Merge8",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge8": {
+      "main": [
+        [
+          {
+            "node": "HTTP_Agregar_Hoja3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP_Agregar_Hoja3": {
+      "main": [
+        [
+          {
+            "node": "Descargar archivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Descargar archivo": {
+      "main": [
+        [
+          {
+            "node": "Renombrar Archivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        []
+      ]
+    },
+    "Convert to File3": {
+      "main": [
+        []
+      ]
+    },
+    "Aggregate1": {
+      "main": [
+        [
+          {
+            "node": "Send email2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send email2": {
+      "main": [
+        [
+          {
+            "node": "Limpiar carpeta2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bajar de PKTONE": {
+      "main": [
+        [
+          {
+            "node": "Upload file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Subir a PKTONE": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Merge12",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge11",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate2": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send email": {
+      "main": [
+        [
+          {
+            "node": "Limpiar carpeta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload file": {
+      "main": [
+        [
+          {
+            "node": "Copiar Hoja",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet2": {
+      "main": [
+        [
+          {
+            "node": "Actualizar Tablas con \"E\" \"N\"",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar facturas": {
+      "main": [
+        [
+          {
+            "node": "Agregar Columnas1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar facturas1": {
+      "main": [
+        [
+          {
+            "node": "Agregar Columnas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Facturas_N": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Facturas_E": {
+      "main": [
+        [
+          {
+            "node": "Merge3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Actualizar Tablas con \"E\" \"N\"": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Copiar Hoja": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Descargar archivo1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Descargar archivo1": {
+      "main": [
+        [
+          {
+            "node": "Renombrar Archivo1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge11": {
+      "main": [
+        [
+          {
+            "node": "Merge4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge12": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Aggregate2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge4": {
+      "main": [
+        [
+          {
+            "node": "Aggregate1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Renombrar Archivo": {
+      "main": [
+        [
+          {
+            "node": "Merge11",
+            "type": "main",
+            "index": 2
+          },
+          {
+            "node": "Merge12",
+            "type": "main",
+            "index": 2
+          },
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 2
+          },
+          {
+            "node": "Merge4",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Renombrar Archivo1": {
+      "main": [
+        [
+          {
+            "node": "Merge11",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge12",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge4",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "crear diseño1": {
+      "main": [
+        [
+          {
+            "node": "Aplicar diseño1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Datos Planos": {
+      "main": [
+        [
+          {
+            "node": "crear spreadsheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Subir Datos Planos": {
+      "main": [
+        [
+          {
+            "node": "Merge9",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Formato": {
+      "main": [
+        [
+          {
+            "node": "Merge9",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge9": {
+      "main": [
+        [
+          {
+            "node": "Aplicar Diseño",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aplicar Diseño": {
+      "main": [
+        [
+          {
+            "node": "Merge6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Datos Planos2": {
+      "main": [
+        [
+          {
+            "node": "Merge6",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Preparar Formato2": {
+      "main": [
+        [
+          {
+            "node": "Merge10",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge10": {
+      "main": [
+        [
+          {
+            "node": "Aplicar Diseño2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Subir Datos Planos2": {
+      "main": [
+        [
+          {
+            "node": "Merge10",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agregar Concentrado": {
+      "main": [
+        [
+          {
+            "node": "Subir Datos Planos2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "resultado final2": {
+      "main": [
+        [
+          {
+            "node": "Preparar Datos Planos3",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Preparar Formato3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge25": {
+      "main": [
+        [
+          {
+            "node": "Agregar Diferencias",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Datos Planos3": {
+      "main": [
+        [
+          {
+            "node": "Merge25",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Agregar Diferencias": {
+      "main": [
+        [
+          {
+            "node": "Subir Datos Planos3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Subir Datos Planos3": {
+      "main": [
+        [
+          {
+            "node": "Merge7",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Formato3": {
+      "main": [
+        [
+          {
+            "node": "Merge7",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge7": {
+      "main": [
+        [
+          {
+            "node": "Aplicar Diseño3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aplicar Diseño3": {
+      "main": [
+        [
+          {
+            "node": "Merge8",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aplicar Diseño2": {
+      "main": [
+        [
+          {
+            "node": "Merge25",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Descargar concentrado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eliminar Items vacíos": {
+      "main": [
+        [
+          {
+            "node": "Preparar Datos Planos",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Preparar Formato",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Extraer columnas del concentrado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Descargar concentrado": {
+      "main": [
+        [
+          {
+            "node": "Bajar de PKTONE",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Subir a PKTONE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "rvdl2p7ZHI1h5ooI",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "versionId": "8801f326-4cd3-42c7-af11-eaa19136c828",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "5b3b7773a095832dea4f30e848125e5009bd06a9efd798b7d0c660e8372bb34f"
+  },
+  "id": "qoDQH3QztiUHeMtY",
+  "tags": []
+}
